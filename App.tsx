@@ -577,11 +577,11 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
 
 function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab) => void }) {
   const tabs: Array<{ id: Tab; icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }> = [
-    { id: 'home', icon: 'home-outline', label: 'Главная' },
-    { id: 'map', icon: 'map-marker-outline', label: 'Карта' },
+    { id: 'home', icon: 'home-variant-outline', label: 'Главная' },
+    { id: 'map', icon: 'map-outline', label: 'Карта' },
     { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
-    { id: 'messages', icon: 'text-box-outline', label: 'Заявки' },
-    { id: 'profile', icon: 'account-outline', label: 'Профиль' },
+    { id: 'messages', icon: 'clipboard-text-outline', label: 'Заявки' },
+    { id: 'profile', icon: 'cog-outline', label: 'Профиль' },
   ];
 
   return (

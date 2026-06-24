@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 
 type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile';
-type ReportStatus = 'На модерации' | 'Передано' | 'В работе' | 'Решено';
+type ReportStatus = 'На модерации' | 'Требует уточнения' | 'Передано' | 'В работе' | 'Решено' | 'Отклонено';
 type ReportFilter = 'Все' | 'Активные' | 'Решенные';
 
 type LocationPoint = {
@@ -31,6 +31,8 @@ type Category = {
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   hint: string;
+  evidenceTip: string;
+  pointsPreview: number;
 };
 
 type Report = {
@@ -41,9 +43,14 @@ type Report = {
   location: string;
   status: ReportStatus;
   nextStep: string;
+  authorityLabel: string;
+  nextActionLabel: string;
   date: string;
   points: number;
   confirmations: number;
+  evidenceScore: number;
+  canConfirm: boolean;
+  canDisputeResolution: boolean;
   image: ImageSourcePropType;
   timeline: Array<{ label: string; done: boolean }>;
 };
@@ -55,14 +62,14 @@ const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 
 const categories: Category[] = [
-  { label: 'Вырубка', icon: 'pine-tree', hint: 'лес, просеки, техника' },
-  { label: 'Мусор', icon: 'trash-can-outline', hint: 'берег, тропы, места отдыха' },
-  { label: 'Свалка', icon: 'dump-truck', hint: 'крупный мусор' },
-  { label: 'Вода', icon: 'water-outline', hint: 'загрязнение воды' },
-  { label: 'Стройка', icon: 'office-building-cog-outline', hint: 'работы без табличек' },
-  { label: 'Разлив', icon: 'oil', hint: 'топливо, пятна' },
-  { label: 'Природа', icon: 'leaf', hint: 'повреждение троп' },
-  { label: 'Другое', icon: 'dots-horizontal', hint: 'другая ситуация' },
+  { label: 'Вырубка', icon: 'pine-tree', hint: 'лес, просеки, техника', evidenceTip: 'Снимите пни, следы техники и общий план участка.', pointsPreview: 70 },
+  { label: 'Мусор', icon: 'trash-can-outline', hint: 'берег, тропы, места отдыха', evidenceTip: 'Покажите масштаб мусора и ближайший ориентир.', pointsPreview: 50 },
+  { label: 'Свалка', icon: 'dump-truck', hint: 'крупный мусор', evidenceTip: 'Снимите общий объем, подъезд и опасные предметы.', pointsPreview: 80 },
+  { label: 'Вода', icon: 'water-outline', hint: 'загрязнение воды', evidenceTip: 'Покажите цвет воды, источник загрязнения и берег.', pointsPreview: 80 },
+  { label: 'Стройка', icon: 'office-building-cog-outline', hint: 'работы без табличек', evidenceTip: 'Снимите технику, ограждение, таблички или их отсутствие.', pointsPreview: 60 },
+  { label: 'Разлив', icon: 'oil', hint: 'топливо, пятна', evidenceTip: 'Покажите пятно, источник и расстояние до воды.', pointsPreview: 90 },
+  { label: 'Природа', icon: 'leaf', hint: 'повреждение троп', evidenceTip: 'Снимите повреждение и место, где его легко найти.', pointsPreview: 50 },
+  { label: 'Другое', icon: 'dots-horizontal', hint: 'другая ситуация', evidenceTip: 'Опишите, что произошло, и добавьте понятный ориентир.', pointsPreview: 40 },
 ];
 
 const initialReports: Report[] = [
@@ -74,9 +81,14 @@ const initialReports: Report[] = [
     location: 'Большое Голоустное',
     status: 'В работе',
     nextStep: 'Ответственные службы проверяют участок',
+    authorityLabel: 'Лесной надзор',
+    nextActionLabel: 'Ожидаем акт проверки',
     date: '12.05.2026',
     points: 50,
     confirmations: 4,
+    evidenceScore: 86,
+    canConfirm: true,
+    canDisputeResolution: false,
     image: reportImage,
     timeline: [
       { label: 'Сообщение получено', done: true },
@@ -94,9 +106,14 @@ const initialReports: Report[] = [
     location: 'Листвянка',
     status: 'Передано',
     nextStep: 'Заявка направлена координатору района',
+    authorityLabel: 'Координатор района',
+    nextActionLabel: 'Назначить исполнителя',
     date: '10.05.2026',
     points: 20,
     confirmations: 2,
+    evidenceScore: 72,
+    canConfirm: true,
+    canDisputeResolution: false,
     image: heroImage,
     timeline: [
       { label: 'Сообщение получено', done: true },
@@ -113,9 +130,14 @@ const initialReports: Report[] = [
     location: 'Ольхон',
     status: 'Решено',
     nextStep: 'Баллы начислены, заявка закрыта',
+    authorityLabel: 'Команда проекта',
+    nextActionLabel: 'Оцените результат',
     date: '02.05.2026',
     points: 100,
     confirmations: 7,
+    evidenceScore: 94,
+    canConfirm: false,
+    canDisputeResolution: true,
     image: rewardImage,
     timeline: [
       { label: 'Сообщение получено', done: true },
@@ -191,6 +213,7 @@ export default function App() {
 
   const submitReport = () => {
     const category = categories.find((item) => item.label === selectedCategory) ?? categories[0];
+    const evidenceScore = Math.min(96, 42 + (pickedImage ? 26 : 0) + (description.trim().length >= 35 ? 14 : 8) + (pickedLocation ? 14 : 0));
     const nextReport: Report = {
       id: Date.now(),
       publicId: `BR-${Math.floor(1200 + Math.random() * 7800)}`,
@@ -199,15 +222,21 @@ export default function App() {
       location: pickedLocation ? 'Текущая точка' : 'Иркутская область',
       status: 'На модерации',
       nextStep: 'Модератор проверит фото, описание и место',
+      authorityLabel: 'Модерация проекта',
+      nextActionLabel: 'Проверка доказательств',
       date: new Intl.DateTimeFormat('ru-RU').format(new Date()),
-      points: 50,
+      points: category.pointsPreview,
       confirmations: 0,
+      evidenceScore,
+      canConfirm: false,
+      canDisputeResolution: false,
       image: pickedImage ? { uri: pickedImage } : reportImage,
       timeline: [
         { label: 'Сообщение получено', done: true },
-        { label: 'Проверка модератором', done: false },
+        { label: 'Проверка фото и места', done: false },
         { label: 'Передача ответственным', done: false },
         { label: 'Работа по обращению', done: false },
+        { label: 'Результат и баллы', done: false },
       ],
     };
 
@@ -229,6 +258,7 @@ export default function App() {
           {activeTab === 'map' && <MapScreen reports={reports} />}
           {activeTab === 'report' && (
             <ReportScreen
+              reports={reports}
               description={description}
               selectedCategory={selectedCategory}
               pickedImage={pickedImage}
@@ -239,6 +269,10 @@ export default function App() {
               onPickLocation={setPickedLocation}
               onSubmit={submitReport}
               onClearDraft={clearDraft}
+              onOpenDuplicate={(id) => {
+                setSelectedReportId(id);
+                setActiveTab('messages');
+              }}
             />
           )}
           {activeTab === 'success' && submittedReport && (
@@ -264,7 +298,7 @@ function HomeScreen({
   onReport: () => void;
   onOpenReports: () => void;
 }) {
-  const activeReports = reports.filter((report) => report.status !== 'Решено').length;
+  const activeReports = reports.filter((report) => report.status !== 'Решено' && report.status !== 'Отклонено').length;
   const solvedReports = reports.filter((report) => report.status === 'Решено').length;
   const newestReport = reports[0];
   const verifiedReports = reports.filter((report) => report.status === 'В работе' || report.status === 'Решено').length;
@@ -274,8 +308,8 @@ function HomeScreen({
       <AppHeader title="Байкал" rightText={`${balance} баллов`} />
 
       <View style={styles.heroBlock}>
-        <Image source={heroImage} style={styles.heroImage} />
-        <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,58,66,0.82)']} style={styles.heroOverlay} />
+        <Image source={heroImage} style={styles.heroImage} resizeMode="cover" />
+        <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,58,66,0.66)']} style={styles.heroOverlay} />
         <View style={styles.heroContent}>
           <View style={styles.heroPill}>
             <MaterialCommunityIcons name="shield-check-outline" size={15} color="#ffffff" />
@@ -291,6 +325,7 @@ function HomeScreen({
       </View>
 
       <WorkflowStrip />
+      <EmergencyNotice />
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
@@ -321,6 +356,7 @@ function HomeScreen({
 }
 
 function ReportScreen({
+  reports,
   description,
   selectedCategory,
   pickedImage,
@@ -331,7 +367,9 @@ function ReportScreen({
   onPickLocation,
   onSubmit,
   onClearDraft,
+  onOpenDuplicate,
 }: {
+  reports: Report[];
   description: string;
   selectedCategory: string;
   pickedImage: string | null;
@@ -342,13 +380,17 @@ function ReportScreen({
   onPickLocation: (value: LocationPoint | null) => void;
   onSubmit: () => void;
   onClearDraft: () => void;
+  onOpenDuplicate: (id: number) => void;
 }) {
   const [formMessage, setFormMessage] = useState('');
+  const categoryMeta = categories.find((item) => item.label === selectedCategory) ?? categories[0];
   const isPhotoReady = Boolean(pickedImage);
   const isDescriptionReady = description.trim().length >= 10;
   const isLocationReady = Boolean(pickedLocation);
   const readiness = (isPhotoReady ? 1 : 0) + 1 + (isDescriptionReady ? 1 : 0) + (isLocationReady ? 1 : 0);
   const canSubmit = readiness === 4;
+  const evidenceScore = Math.min(96, 42 + (isPhotoReady ? 26 : 0) + (description.trim().length >= 35 ? 14 : isDescriptionReady ? 8 : 0) + (isLocationReady ? 14 : 0));
+  const similarReport = reports.find((report) => report.category === selectedCategory && report.status !== 'Решено' && report.status !== 'Отклонено');
   const nextMissing = !isPhotoReady
     ? 'Добавьте фото проблемы'
     : !isDescriptionReady
@@ -403,6 +445,10 @@ function ReportScreen({
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${(readiness / 4) * 100}%` }]} />
         </View>
+        <View style={styles.taskMetaRow}>
+          <MiniBadge icon="star-outline" text={`до +${categoryMeta.pointsPreview} баллов`} />
+          <MiniBadge icon="shield-check-outline" text={`доказательность ${evidenceScore}%`} />
+        </View>
       </View>
 
       <StepBlock number="1" title="Фото" done={isPhotoReady}>
@@ -425,6 +471,7 @@ function ReportScreen({
       </StepBlock>
 
       <StepBlock number="2" title={`Категория: ${selectedCategory}`} done>
+        <Text style={styles.fieldHintTop}>{categoryMeta.evidenceTip}</Text>
         <View style={styles.categoryChips}>
           {categories.map((item) => {
             const active = selectedCategory === item.label;
@@ -438,6 +485,8 @@ function ReportScreen({
         </View>
       </StepBlock>
 
+      {similarReport ? <SimilarReportCard report={similarReport} onOpen={() => onOpenDuplicate(similarReport.id)} /> : null}
+
       <StepBlock number="3" title="Описание места" done={isDescriptionReady}>
         <TextInput
           value={description}
@@ -448,6 +497,7 @@ function ReportScreen({
           style={styles.textArea}
         />
         <Text style={styles.fieldHint}>Например: что видно рядом, есть ли техника, мусор, следы работ или запах.</Text>
+        <EvidenceMeter score={evidenceScore} />
       </StepBlock>
 
       <StepBlock number="4" title="Точка на карте" done={isLocationReady}>
@@ -482,7 +532,11 @@ function SuccessScreen({ report, onMessages, onAnother }: { report: Report; onMe
           <MaterialCommunityIcons name="check" size={34} color="#ffffff" />
         </View>
         <Text style={styles.successTitle}>Заявка принята</Text>
-        <Text style={styles.successText}>{report.publicId} отправлена на проверку. Статус будет обновляться в разделе «Заявки».</Text>
+        <Text style={styles.successText}>{report.publicId} отправлена на проверку. После подтверждения можно получить +{report.points} баллов.</Text>
+        <View style={styles.successMetaRow}>
+          <MiniBadge icon="shield-check-outline" text={`${report.evidenceScore}% доказательность`} />
+          <MiniBadge icon="clock-outline" text={report.nextActionLabel} />
+        </View>
       </View>
 
       <View style={styles.listPanel}>
@@ -513,7 +567,7 @@ function MessagesScreen({
   const [filter, setFilter] = useState<ReportFilter>('Все');
   const visibleReports = reports.filter((report) => {
     if (filter === 'Все') return true;
-    if (filter === 'Активные') return report.status !== 'Решено';
+    if (filter === 'Активные') return report.status !== 'Решено' && report.status !== 'Отклонено';
     return report.status === 'Решено';
   });
   const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0];
@@ -521,7 +575,7 @@ function MessagesScreen({
   return (
     <View style={styles.screen}>
       <AppHeader title="Мои заявки" rightText={`${reports.length}`} />
-      <Text style={styles.leadText}>Откройте заявку, чтобы увидеть текущий этап и следующий шаг.</Text>
+      <Text style={styles.leadText}>Откройте заявку, чтобы увидеть текущий этап, ответственного и следующий шаг.</Text>
       <SegmentedControl value={filter} onChange={setFilter} />
 
       <View style={styles.listPanel}>
@@ -556,13 +610,18 @@ function MapScreen({ reports }: { reports: Report[] }) {
 
       <View style={styles.mapMock}>
         <Text style={styles.mapTitle}>Иркутская область</Text>
-        <View style={[styles.mapPin, { top: '26%', left: '62%' }]} />
-        <View style={[styles.mapPin, { top: '50%', left: '30%' }]} />
-        <View style={[styles.mapPin, { top: '68%', left: '54%' }]} />
+        <View style={styles.mapLegend}>
+          <LegendItem color="#008F9A" label="проверено" />
+          <LegendItem color="#1769aa" label="в работе" />
+          <LegendItem color="#247647" label="решено" />
+        </View>
+        <View style={[styles.mapPin, { top: '26%', left: '62%', backgroundColor: '#1769aa' }]} />
+        <View style={[styles.mapPin, { top: '50%', left: '30%', backgroundColor: '#008F9A' }]} />
+        <View style={[styles.mapPin, { top: '68%', left: '54%', backgroundColor: '#247647' }]} />
       </View>
 
       <View style={styles.listPanel}>
-        <InfoRow icon="map-marker-outline" title="Ближайшая заявка" text={(filtered[0] ?? reports[0]).title} />
+        <InfoRow icon="map-marker-outline" title="Ближайшая заявка" text={`${(filtered[0] ?? reports[0]).title} · ${(filtered[0] ?? reports[0]).confirmations} подтвержд.`} />
         <Pressable style={styles.outlineWideButton}>
           <Text style={styles.outlineButtonText}>Подтвердить обращение</Text>
         </Pressable>
@@ -579,7 +638,7 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
         <Text style={styles.profileInitial}>К</Text>
         <View style={styles.rowCopy}>
           <Text style={styles.rowTitle}>Участник проекта</Text>
-          <Text style={styles.rowText}>Контакты не видны публично</Text>
+          <Text style={styles.rowText}>Доверие растет за подтвержденные обращения</Text>
         </View>
       </View>
 
@@ -593,6 +652,12 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
         <InfoRow icon="shield-check-outline" title="Профиль и доверие" text="Здесь хранятся баллы, настройки приватности и уровень доверия." />
         <InfoRow icon="bell-outline" title="Уведомления" text="Приложение сообщит, когда у заявки изменится статус." />
         <InfoRow icon="file-document-outline" title="Правила сервиса" text="Документы и политика обработки данных будут доступны в приложении." />
+      </View>
+      <View style={styles.trustPanel}>
+        <Text style={styles.trustTitle}>Как растет доверие</Text>
+        <TrustLine icon="camera-outline" title="Фото с места" value="+12%" />
+        <TrustLine icon="account-check-outline" title="Подтверждения других людей" value="+18%" />
+        <TrustLine icon="check-decagram-outline" title="Решенные заявки" value="+25%" />
       </View>
     </View>
   );
@@ -664,6 +729,48 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
   );
 }
 
+function MiniBadge({ icon, text }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; text: string }) {
+  return (
+    <View style={styles.miniBadge}>
+      <MaterialCommunityIcons name={icon} size={14} color="#00736F" />
+      <Text style={styles.miniBadgeText}>{text}</Text>
+    </View>
+  );
+}
+
+function EvidenceMeter({ score }: { score: number }) {
+  const label = score >= 82 ? 'Сильная заявка' : score >= 68 ? 'Почти готово' : 'Добавьте деталей';
+
+  return (
+    <View style={styles.evidenceBox}>
+      <View style={styles.evidenceHeader}>
+        <Text style={styles.evidenceTitle}>{label}</Text>
+        <Text style={styles.evidenceValue}>{score}%</Text>
+      </View>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${score}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+function SimilarReportCard({ report, onOpen }: { report: Report; onOpen: () => void }) {
+  return (
+    <View style={styles.similarCard}>
+      <View style={styles.similarIcon}>
+        <MaterialCommunityIcons name="map-marker-question-outline" size={22} color="#ffffff" />
+      </View>
+      <View style={styles.rowCopy}>
+        <Text style={styles.similarTitle}>Похоже, такая заявка уже есть</Text>
+        <Text style={styles.similarText}>{report.title} · {report.location}</Text>
+        <Pressable style={styles.similarButton} onPress={onOpen}>
+          <Text style={styles.similarButtonText}>Открыть и подтвердить</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function StoryCard({ image, title, text }: { image: ImageSourcePropType; title: string; text: string }) {
   return (
     <View style={styles.storyCard}>
@@ -683,6 +790,15 @@ function WorkflowStrip() {
       <WorkflowStep icon="camera-outline" title="Фото" text="Снимите проблему" />
       <WorkflowStep icon="map-marker-outline" title="Место" text="Добавьте точку" />
       <WorkflowStep icon="progress-check" title="Статус" text="Следите в заявках" />
+    </View>
+  );
+}
+
+function EmergencyNotice() {
+  return (
+    <View style={styles.emergencyNotice}>
+      <MaterialCommunityIcons name="alert-outline" size={18} color="#00736F" />
+      <Text style={styles.emergencyText}>Если есть срочная опасность для людей, сначала звоните в экстренные службы.</Text>
     </View>
   );
 }
@@ -766,6 +882,11 @@ function ReportDetail({ report }: { report: Report }) {
       <Text style={styles.detailLabel}>{report.publicId}</Text>
       <Text style={styles.detailTitle}>{report.title}</Text>
       <Text style={styles.detailText}>{report.nextStep}</Text>
+      <View style={styles.detailMetaGrid}>
+        <DetailStat label="Ответственный" value={report.authorityLabel} />
+        <DetailStat label="Следующий шаг" value={report.nextActionLabel} />
+        <DetailStat label="Доказательность" value={`${report.evidenceScore}%`} />
+      </View>
       <View style={styles.timeline}>
         {report.timeline.map((step) => (
           <View style={styles.timelineStep} key={step.label}>
@@ -774,12 +895,58 @@ function ReportDetail({ report }: { report: Report }) {
           </View>
         ))}
       </View>
+      <View style={styles.detailActions}>
+        {report.canConfirm ? (
+          <Pressable style={styles.detailActionButton}>
+            <MaterialCommunityIcons name="check-circle-outline" size={17} color="#141414" />
+            <Text style={styles.detailActionText}>Подтвердить</Text>
+          </Pressable>
+        ) : null}
+        {report.canDisputeResolution ? (
+          <Pressable style={styles.detailActionButton}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={17} color="#141414" />
+            <Text style={styles.detailActionText}>Не решено</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function DetailStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailStat}>
+      <Text style={styles.detailStatLabel}>{label}</Text>
+      <Text style={styles.detailStatValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function LegendItem({ color, label }: { color: string; label: string }) {
+  return (
+    <View style={styles.legendItem}>
+      <View style={[styles.legendDot, { backgroundColor: color }]} />
+      <Text style={styles.legendText}>{label}</Text>
+    </View>
+  );
+}
+
+function TrustLine({ icon, title, value }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; value: string }) {
+  return (
+    <View style={styles.trustLine}>
+      <View style={styles.trustLineIcon}>
+        <MaterialCommunityIcons name={icon} size={18} color="#00736F" />
+      </View>
+      <Text style={styles.trustLineTitle}>{title}</Text>
+      <Text style={styles.trustLineValue}>{value}</Text>
     </View>
   );
 }
 
 function getStatusPalette(status: ReportStatus) {
   if (status === 'Решено') return { bg: '#e7f6ed', text: '#247647' };
+  if (status === 'Отклонено') return { bg: '#f1f3f4', text: '#5f6368' };
+  if (status === 'Требует уточнения') return { bg: '#E8F5F3', text: '#00736F' };
   if (status === 'На модерации') return { bg: '#eeeeee', text: '#5f6368' };
   if (status === 'Передано') return { bg: '#E4F6F4', text: '#00736F' };
   return { bg: '#e5f4ff', text: '#1769aa' };
@@ -858,6 +1025,7 @@ const styles = StyleSheet.create({
     left: 0,
     width: '100%',
     height: '100%',
+    zIndex: 0,
   },
   heroOverlay: {
     position: 'absolute',
@@ -865,12 +1033,14 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
+    zIndex: 1,
   },
   heroContent: {
     flex: 1,
     minHeight: 292,
     padding: 16,
     justifyContent: 'flex-end',
+    zIndex: 2,
   },
   heroPill: {
     alignSelf: 'flex-start',
@@ -967,6 +1137,23 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     fontWeight: '700',
   },
+  emergencyNotice: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#E8F5F3',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginBottom: 12,
+  },
+  emergencyText: {
+    flex: 1,
+    color: '#00736F',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
   outlineButton: {
     flex: 1,
     minHeight: 46,
@@ -1026,6 +1213,21 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     fontSize: 12,
     fontWeight: '700',
+  },
+  miniBadge: {
+    minHeight: 28,
+    borderRadius: 14,
+    backgroundColor: '#E8F5F3',
+    paddingHorizontal: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  miniBadgeText: {
+    color: '#00736F',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
   },
   sectionHeader: {
     minHeight: 30,
@@ -1170,6 +1372,12 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 6,
   },
+  taskMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 10,
+  },
   progressTrack: {
     height: 5,
     borderRadius: 3,
@@ -1217,6 +1425,13 @@ const styles = StyleSheet.create({
     color: '#141414',
     fontSize: 16,
     fontWeight: '800',
+  },
+  fieldHintTop: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: -2,
+    marginBottom: 10,
   },
   photoBox: {
     borderRadius: 16,
@@ -1298,6 +1513,28 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 8,
   },
+  evidenceBox: {
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginTop: 10,
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  evidenceTitle: {
+    color: '#141414',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  evidenceValue: {
+    color: '#00736F',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   locationRow: {
     minHeight: 58,
     borderRadius: 16,
@@ -1313,6 +1550,49 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '700',
     marginBottom: 12,
+  },
+  similarCard: {
+    borderRadius: 18,
+    backgroundColor: '#E8F5F3',
+    padding: 13,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  similarIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  similarTitle: {
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  similarText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  similarButton: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    marginTop: 9,
+  },
+  similarButtonText: {
+    color: '#141414',
+    fontSize: 12,
+    fontWeight: '800',
   },
   successBlock: {
     borderRadius: 22,
@@ -1344,6 +1624,13 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
     marginTop: 8,
+  },
+  successMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 14,
   },
   segmented: {
     minHeight: 46,
@@ -1453,6 +1740,32 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
   },
+  detailMetaGrid: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 14,
+  },
+  detailStat: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  detailStatLabel: {
+    color: '#8b8b8b',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  detailStatValue: {
+    color: '#141414',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    marginTop: 5,
+  },
   timeline: {
     marginTop: 14,
     gap: 10,
@@ -1479,6 +1792,26 @@ const styles = StyleSheet.create({
   timelineTextDone: {
     color: '#141414',
   },
+  detailActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 15,
+  },
+  detailActionButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  detailActionText: {
+    color: '#141414',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   mapMock: {
     height: 320,
     borderRadius: 22,
@@ -1490,6 +1823,30 @@ const styles = StyleSheet.create({
   mapTitle: {
     color: '#141414',
     fontSize: 18,
+    fontWeight: '800',
+  },
+  mapLegend: {
+    alignSelf: 'flex-start',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+    marginTop: 10,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendText: {
+    color: '#5f6368',
+    fontSize: 11,
     fontWeight: '800',
   },
   mapPin: {
@@ -1519,6 +1876,48 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 54,
     fontSize: 22,
+    fontWeight: '800',
+  },
+  trustPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
+  },
+  trustTitle: {
+    color: '#141414',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  trustLine: {
+    minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 7,
+  },
+  trustLineIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 11,
+    backgroundColor: '#E8F5F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trustLineTitle: {
+    flex: 1,
+    color: '#141414',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  trustLineValue: {
+    color: '#00736F',
+    fontSize: 12,
     fontWeight: '800',
   },
   bottomNav: {

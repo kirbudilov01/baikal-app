@@ -62,6 +62,15 @@ type Report = {
   timeline: Array<{ label: string; done: boolean }>;
 };
 
+type Reward = {
+  title: string;
+  partner: string;
+  cost: number;
+  benefit: string;
+  image: ImageSourcePropType;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+};
+
 const heroImage = require('./assets/baikal/hero-clean.png');
 const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
@@ -83,6 +92,12 @@ const categories: Category[] = [
   { label: 'Разлив', icon: 'oil', hint: 'топливо, пятна', evidenceTip: 'Покажите пятно, источник и расстояние до воды.', pointsPreview: 90 },
   { label: 'Природа', icon: 'leaf', hint: 'повреждение троп', evidenceTip: 'Снимите повреждение и место, где его легко найти.', pointsPreview: 50 },
   { label: 'Другое', icon: 'dots-horizontal', hint: 'другая ситуация', evidenceTip: 'Опишите, что произошло, и добавьте понятный ориентир.', pointsPreview: 40 },
+];
+
+const rewards: Reward[] = [
+  { title: 'Чай у озера', partner: 'Кафе «У Озера»', cost: 350, benefit: 'напиток в подарок', image: rewardImage, icon: 'coffee-outline' },
+  { title: 'Прокат велосипеда', partner: 'Листвянка Bike', cost: 800, benefit: '-20% на прогулку', image: heroImage, icon: 'bike' },
+  { title: 'Эко-отель', partner: 'Байкал Дом', cost: 1200, benefit: '-10% на ночь', image: rewardImage, icon: 'home-heart' },
 ];
 
 const initialReports: Report[] = [
@@ -142,7 +157,7 @@ const initialReports: Report[] = [
     category: 'Природа',
     location: 'Ольхон',
     status: 'Решено',
-    nextStep: 'Баллы начислены, заявка закрыта',
+    nextStep: 'Листики начислены, заявка закрыта',
     authorityLabel: 'Команда проекта',
     nextActionLabel: 'Оцените результат',
     date: '02.05.2026',
@@ -157,7 +172,7 @@ const initialReports: Report[] = [
       { label: 'Проверено модератором', done: true },
       { label: 'Передано ответственным', done: true },
       { label: 'Проблема устранена', done: true },
-      { label: 'Баллы начислены', done: true },
+      { label: 'Листики начислены', done: true },
     ],
   },
 ];
@@ -258,7 +273,7 @@ export default function App() {
         { label: 'Проверка фото и места', done: false },
         { label: 'Передача ответственным', done: false },
         { label: 'Работа по обращению', done: false },
-        { label: 'Результат и баллы', done: false },
+        { label: 'Результат и листики', done: false },
       ],
     };
 
@@ -329,7 +344,7 @@ function HomeScreen({
 
   return (
     <View style={styles.screen}>
-      <AppHeader title="Байкал" rightText={`${balance} баллов`} />
+      <AppHeader title="Байкал" rightText={`${balance} листиков`} />
 
       <View style={styles.heroBlock}>
         <Image source={heroImage} style={styles.heroImage} resizeMode="cover" />
@@ -351,7 +366,7 @@ function HomeScreen({
       <WorkflowStrip />
       <EmergencyNotice />
 
-      <ReferenceRail reports={reports} balance={balance} onOpenReports={onOpenReports} />
+      <RewardsSection balance={balance} />
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
@@ -359,17 +374,9 @@ function HomeScreen({
         <SummaryCell label="Решено" value={`${solvedReports}`} />
       </View>
 
-      <SectionHeader title="Последний статус" action="Все заявки" onAction={onOpenReports} />
+      <SectionHeader title="Последняя заявка" action="Все" onAction={onOpenReports} />
       <View style={styles.listPanel}>
-        <InfoRow icon="progress-check" title={newestReport.status} text={newestReport.nextStep} />
         <ReportRow report={newestReport} />
-      </View>
-
-      <SectionHeader title="Что можно сообщить" action="8 типов" />
-      <View style={styles.categoryList}>
-        {categories.slice(0, 4).map((item) => (
-          <InfoRow key={item.label} icon={item.icon} title={item.label} text={item.hint} />
-        ))}
       </View>
     </View>
   );
@@ -482,7 +489,7 @@ function ReportScreen({
           <View style={[styles.progressFill, { width: `${(readiness / 4) * 100}%` }]} />
         </View>
         <View style={styles.taskMetaRow}>
-          <MiniBadge icon="star-outline" text={`до +${categoryMeta.pointsPreview} баллов`} />
+          <MiniBadge icon="leaf" text={`до +${categoryMeta.pointsPreview} листиков`} />
           <MiniBadge icon="shield-check-outline" text={`доказательность ${evidenceScore}%`} />
         </View>
       </View>
@@ -573,7 +580,7 @@ function SuccessScreen({ report, onMessages, onAnother }: { report: Report; onMe
           <MaterialCommunityIcons name="check" size={34} color="#ffffff" />
         </View>
         <Text style={styles.successTitle}>Заявка принята</Text>
-        <Text style={styles.successText}>{report.publicId} отправлена на проверку. После подтверждения можно получить +{report.points} баллов.</Text>
+        <Text style={styles.successText}>{report.publicId} отправлена на проверку. После подтверждения можно получить +{report.points} листиков.</Text>
         <View style={styles.successMetaRow}>
           <MiniBadge icon="shield-check-outline" text={`${report.evidenceScore}% доказательность`} />
           <MiniBadge icon="clock-outline" text={report.nextActionLabel} />
@@ -583,7 +590,7 @@ function SuccessScreen({ report, onMessages, onAnother }: { report: Report; onMe
       <View style={styles.listPanel}>
         <InfoRow icon="eye-check-outline" title="1. Проверим заявку" text="Модератор проверит фото, описание и место." />
         <InfoRow icon="send-check-outline" title="2. Передадим ответственным" text="После проверки заявку получит профильная служба." />
-        <InfoRow icon="gift-outline" title="3. Начислим баллы" text="Баллы появятся после подтверждения полезного действия." />
+        <InfoRow icon="gift-outline" title="3. Дадим листики" text="Листики появятся после подтверждения полезного действия." />
       </View>
 
       <Pressable style={styles.primaryButton} onPress={onMessages}>
@@ -685,7 +692,9 @@ function MapScreen({ reports }: { reports: Report[] }) {
 function ProfileScreen({ balance, reports }: { balance: number; reports: Report[] }) {
   return (
     <View style={styles.screen}>
-      <AppHeader title="Профиль" rightText="Защищено" />
+      <AppHeader title="Бонусы" rightText={`${balance} листиков`} />
+      <RewardsSection balance={balance} />
+
       <View style={styles.profileCard}>
         <Text style={styles.profileInitial}>К</Text>
         <View style={styles.rowCopy}>
@@ -695,13 +704,13 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
       </View>
 
       <View style={styles.summaryGrid}>
-        <SummaryCell label="Баллы" value={`${balance}`} />
+        <SummaryCell label="Листики" value={`${balance}`} />
         <SummaryCell label="Заявки" value={`${reports.length}`} />
         <SummaryCell label="Доверие" value="82%" />
       </View>
 
       <View style={styles.listPanel}>
-        <InfoRow icon="shield-check-outline" title="Профиль и доверие" text="Здесь хранятся баллы, настройки приватности и уровень доверия." />
+        <InfoRow icon="shield-check-outline" title="Профиль и доверие" text="Здесь хранятся бонусы, настройки приватности и уровень доверия." />
         <InfoRow icon="bell-outline" title="Уведомления" text="Приложение сообщит, когда у заявки изменится статус." />
         <InfoRow icon="file-document-outline" title="Правила сервиса" text="Документы и политика обработки данных будут доступны в приложении." />
       </View>
@@ -721,7 +730,7 @@ function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Ta
     { id: 'map', icon: 'map-outline', label: 'Карта' },
     { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
     { id: 'messages', icon: 'clipboard-text-outline', label: 'Заявки' },
-    { id: 'profile', icon: 'cog-outline', label: 'Еще' },
+    { id: 'profile', icon: 'gift-outline', label: 'Бонусы' },
   ];
 
   return (
@@ -790,67 +799,60 @@ function MiniBadge({ icon, text }: { icon: keyof typeof MaterialCommunityIcons.g
   );
 }
 
-function ReferenceRail({
-  reports,
-  balance,
-  onOpenReports,
-}: {
-  reports: Report[];
-  balance: number;
-  onOpenReports: () => void;
-}) {
-  const leadReport = reports[0];
+function RewardsSection({ balance }: { balance: number }) {
+  const nextReward = rewards.find((reward) => reward.cost > balance);
+  const targetCost = nextReward?.cost ?? rewards[rewards.length - 1].cost;
+  const progress = Math.min(100, Math.round((balance / targetCost) * 100));
 
   return (
-    <View style={styles.referenceRail}>
-      <ReferenceCard
-        image={leadReport.image}
-        kicker={leadReport.status}
-        title={leadReport.title}
-        text={leadReport.nextActionLabel}
-        icon="clipboard-text-search-outline"
-        onPress={onOpenReports}
-      />
-      <ReferenceCard
-        image={rewardImage}
-        kicker={`${balance} баллов`}
-        title="Полезные действия"
-        text="Баллы после подтверждения"
-        icon="leaf-circle-outline"
-        onPress={onOpenReports}
-      />
+    <View style={styles.rewardsPanel}>
+      <View style={styles.rewardsHeader}>
+        <View>
+          <Text style={styles.rewardsTitle}>Ваши листики</Text>
+          <Text style={styles.rewardsText}>Зарабатывайте за полезные действия и меняйте на бонусы.</Text>
+        </View>
+        <View style={styles.leafBalance}>
+          <MaterialCommunityIcons name="leaf" size={18} color="#ffffff" />
+          <Text style={styles.leafBalanceText}>{balance}</Text>
+        </View>
+      </View>
+      <View style={styles.rewardProgress}>
+        <View style={styles.rewardProgressTop}>
+          <Text style={styles.rewardProgressText}>{nextReward ? 'До следующего бонуса' : 'Бонусы открыты'}</Text>
+          <Text style={styles.rewardProgressValue}>{nextReward ? `${nextReward.cost - balance} листиков` : 'все открыты'}</Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${progress}%` }]} />
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rewardRail}>
+        {rewards.map((reward) => (
+          <RewardCard key={reward.title} reward={reward} available={balance >= reward.cost} />
+        ))}
+      </ScrollView>
     </View>
   );
 }
 
-function ReferenceCard({
-  image,
-  kicker,
-  title,
-  text,
-  icon,
-  onPress,
-}: {
-  image: ImageSourcePropType;
-  kicker: string;
-  title: string;
-  text: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  onPress: () => void;
-}) {
+function RewardCard({ reward, available }: { reward: Reward; available: boolean }) {
   return (
-    <Pressable style={styles.referenceCard} onPress={onPress}>
-      <Image source={image} style={styles.referenceImage} resizeMode="cover" />
-      <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,58,66,0.78)']} style={styles.referenceOverlay} />
-      <View style={styles.referenceIcon}>
-        <MaterialCommunityIcons name={icon} size={18} color="#ffffff" />
+    <View style={styles.rewardCard}>
+      <Image source={reward.image} style={styles.rewardImage} resizeMode="cover" />
+      <LinearGradient colors={['rgba(0,0,0,0.06)', 'rgba(0,58,66,0.76)']} style={styles.rewardOverlay} />
+      <View style={styles.rewardIcon}>
+        <MaterialCommunityIcons name={reward.icon} size={18} color="#ffffff" />
       </View>
-      <View style={styles.referenceCopy}>
-        <Text style={styles.referenceKicker}>{kicker}</Text>
-        <Text style={styles.referenceTitle}>{title}</Text>
-        <Text style={styles.referenceText}>{text}</Text>
+      <View style={styles.rewardCopy}>
+        <Text style={styles.rewardPartner}>{reward.partner}</Text>
+        <Text style={styles.rewardTitle}>{reward.title}</Text>
+        <Text style={styles.rewardBenefit}>{reward.benefit}</Text>
+        <View style={[styles.rewardCost, available && styles.rewardCostAvailable]}>
+          <Text style={[styles.rewardCostText, available && styles.rewardCostTextAvailable]}>
+            {available ? 'Можно забрать' : `${reward.cost} листиков`}
+          </Text>
+        </View>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -1063,7 +1065,10 @@ function ReportDetail({ report }: { report: Report }) {
         <Image source={report.image} style={styles.detailHeroImage} resizeMode="cover" />
         <LinearGradient colors={['rgba(0,0,0,0.02)', 'rgba(0,58,66,0.78)']} style={styles.detailHeroOverlay} />
         <View style={styles.detailHeroCopy}>
-          <Text style={styles.detailHeroKicker}>{report.publicId} · {report.status}</Text>
+          <View style={[styles.detailHeroStatus, { backgroundColor: getStatusPalette(report.status).bg }]}>
+            <Text style={[styles.detailHeroStatusText, { color: getStatusPalette(report.status).text }]}>{report.status}</Text>
+          </View>
+          <Text style={styles.detailHeroKicker}>{report.publicId} · {report.location}</Text>
           <Text style={styles.detailHeroTitle}>{report.title}</Text>
           <Text style={styles.detailHeroText}>{report.nextStep}</Text>
         </View>
@@ -1166,7 +1171,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   appTitle: {
     color: '#141414',
@@ -1196,7 +1201,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   heroBlock: {
-    minHeight: 292,
+    minHeight: 268,
     borderRadius: 24,
     backgroundColor: '#0A3D44',
     marginBottom: 12,
@@ -1223,7 +1228,7 @@ const styles = StyleSheet.create({
   },
   heroContent: {
     flex: 1,
-    minHeight: 292,
+    minHeight: 268,
     padding: 16,
     justifyContent: 'flex-end',
     zIndex: 2,
@@ -1237,7 +1242,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   heroPillText: {
     color: '#ffffff',
@@ -1247,8 +1252,8 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: '#ffffff',
-    fontSize: 27,
-    lineHeight: 32,
+    fontSize: 26,
+    lineHeight: 31,
     fontWeight: '800',
     letterSpacing: 0,
   },
@@ -1256,8 +1261,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.86)',
     fontSize: 14,
     lineHeight: 20,
-    marginTop: 8,
-    marginBottom: 14,
+    marginTop: 7,
+    marginBottom: 12,
   },
   heroButton: {
     minHeight: 50,
@@ -1297,7 +1302,7 @@ const styles = StyleSheet.create({
   },
   workflowStep: {
     flex: 1,
-    minHeight: 88,
+    minHeight: 78,
     borderRadius: 18,
     backgroundColor: '#f5f6f7',
     padding: 10,
@@ -1340,20 +1345,80 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: '800',
   },
-  referenceRail: {
-    flexDirection: 'row',
-    gap: 10,
+  rewardsPanel: {
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
     marginBottom: 14,
   },
-  referenceCard: {
-    flex: 1,
-    minHeight: 164,
-    borderRadius: 22,
+  rewardsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  rewardsTitle: {
+    color: '#141414',
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '800',
+  },
+  rewardsText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+    maxWidth: 235,
+  },
+  leafBalance: {
+    minHeight: 42,
+    borderRadius: 21,
+    backgroundColor: '#008F9A',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  leafBalanceText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  rewardProgress: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginTop: 12,
+  },
+  rewardProgressTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 9,
+  },
+  rewardProgressText: {
+    color: '#5f6368',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  rewardProgressValue: {
+    color: '#00736F',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  rewardRail: {
+    gap: 10,
+    paddingTop: 12,
+  },
+  rewardCard: {
+    width: 174,
+    height: 184,
+    borderRadius: 20,
     backgroundColor: '#0A3D44',
     overflow: 'hidden',
     position: 'relative',
   },
-  referenceImage: {
+  rewardImage: {
     position: 'absolute',
     top: 0,
     right: 0,
@@ -1362,14 +1427,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  referenceOverlay: {
+  rewardOverlay: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
   },
-  referenceIcon: {
+  rewardIcon: {
     position: 'absolute',
     top: 12,
     right: 12,
@@ -1380,37 +1445,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  referenceCopy: {
+  rewardCopy: {
     flex: 1,
-    padding: 14,
+    padding: 13,
     justifyContent: 'flex-end',
   },
-  referenceKicker: {
-    alignSelf: 'flex-start',
-    minHeight: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    color: '#ffffff',
-    paddingHorizontal: 9,
-    paddingTop: 5,
+  rewardPartner: {
+    color: 'rgba(255,255,255,0.78)',
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
-    overflow: 'hidden',
-    marginBottom: 9,
+    marginBottom: 5,
   },
-  referenceTitle: {
+  rewardTitle: {
     color: '#ffffff',
     fontSize: 17,
     lineHeight: 21,
     fontWeight: '800',
   },
-  referenceText: {
+  rewardBenefit: {
     color: 'rgba(255,255,255,0.82)',
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 4,
+    marginTop: 3,
     fontWeight: '700',
+  },
+  rewardCost: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 9,
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  rewardCostAvailable: {
+    backgroundColor: '#ffffff',
+  },
+  rewardCostText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  rewardCostTextAvailable: {
+    color: '#141414',
   },
   outlineButton: {
     flex: 1,
@@ -2105,6 +2183,18 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 14,
     justifyContent: 'flex-end',
+  },
+  detailHeroStatus: {
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  detailHeroStatusText: {
+    fontSize: 11,
+    fontWeight: '800',
   },
   detailHeroKicker: {
     color: 'rgba(255,255,255,0.82)',

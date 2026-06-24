@@ -16,8 +16,9 @@ npx serve dist
 1. Создать GitHub repository.
 2. Запушить этот проект в repository.
 3. В GitHub открыть `Settings -> Pages`.
-4. В `Build and deployment` выбрать `GitHub Actions`.
-5. Запушить в `main` или запустить workflow вручную: `Actions -> Deploy web app to GitHub Pages -> Run workflow`.
+4. В `Build and deployment` выбрать `Deploy from a branch`.
+5. Выбрать ветку `gh-pages` и папку `/root`.
+6. Запушить в `main` или запустить workflow вручную: `Actions -> Deploy web app to GitHub Pages -> Run workflow`.
 
 После успешного деплоя сайт будет доступен по адресу:
 

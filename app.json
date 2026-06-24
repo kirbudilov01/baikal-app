@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Байкал в наших руках",
+    "slug": "baikal-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "baikal",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#EEF7F8"
+    },
+    "ios": {
+      "bundleIdentifier": "ru.newpeople.baikal",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать экологическую проблему для заявки.",
+        "NSPhotoLibraryUsageDescription": "Фото нужны, чтобы добавить снимок проблемы к заявке.",
+        "NSLocationWhenInUseUsageDescription": "Геопозиция нужна, чтобы указать точку проблемы на карте."
+      }
+    },
+    "android": {
+      "package": "ru.newpeople.baikal",
+      "adaptiveIcon": {
+        "backgroundColor": "#083456",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

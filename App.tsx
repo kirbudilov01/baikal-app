@@ -1,0 +1,1386 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Image,
+  ImageSourcePropType,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  ViewStyle,
+} from 'react-native';
+
+type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile';
+type ReportStatus = 'На модерации' | 'Передано' | 'В работе' | 'Решено';
+type ReportFilter = 'Все' | 'Активные' | 'Решенные';
+
+type LocationPoint = {
+  latitude: number;
+  longitude: number;
+};
+
+type Category = {
+  label: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  hint: string;
+};
+
+type Report = {
+  id: number;
+  publicId: string;
+  title: string;
+  category: string;
+  location: string;
+  status: ReportStatus;
+  nextStep: string;
+  date: string;
+  points: number;
+  confirmations: number;
+  image: ImageSourcePropType;
+  timeline: Array<{ label: string; done: boolean }>;
+};
+
+const heroImage = require('./assets/baikal/hero-clean.png');
+const reportImage = require('./assets/baikal/report-clean.png');
+const rewardImage = require('./assets/baikal/rewards-clean.png');
+const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
+const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
+
+const categories: Category[] = [
+  { label: 'Вырубка', icon: 'pine-tree', hint: 'лес, просеки, техника' },
+  { label: 'Мусор', icon: 'trash-can-outline', hint: 'берег, тропы, пикники' },
+  { label: 'Свалка', icon: 'dump-truck', hint: 'крупный мусор' },
+  { label: 'Вода', icon: 'water-outline', hint: 'загрязнение воды' },
+  { label: 'Стройка', icon: 'office-building-cog-outline', hint: 'работы без табличек' },
+  { label: 'Разлив', icon: 'oil', hint: 'топливо, пятна' },
+  { label: 'Природа', icon: 'leaf', hint: 'повреждение троп' },
+  { label: 'Другое', icon: 'dots-horizontal', hint: 'иная проблема' },
+];
+
+const initialReports: Report[] = [
+  {
+    id: 1,
+    publicId: 'BR-1024',
+    title: 'Незаконная вырубка леса',
+    category: 'Вырубка',
+    location: 'Большое Голоустное',
+    status: 'В работе',
+    nextStep: 'Ответственные службы проверяют участок',
+    date: '12.05.2026',
+    points: 50,
+    confirmations: 4,
+    image: reportImage,
+    timeline: [
+      { label: 'Сообщение получено', done: true },
+      { label: 'Фото и точка проверены', done: true },
+      { label: 'Передано ответственным', done: true },
+      { label: 'Проверка на месте', done: true },
+      { label: 'Ожидаем результат', done: false },
+    ],
+  },
+  {
+    id: 2,
+    publicId: 'BR-1018',
+    title: 'Мусор на берегу',
+    category: 'Мусор',
+    location: 'Листвянка',
+    status: 'Передано',
+    nextStep: 'Заявка направлена координатору района',
+    date: '10.05.2026',
+    points: 20,
+    confirmations: 2,
+    image: heroImage,
+    timeline: [
+      { label: 'Сообщение получено', done: true },
+      { label: 'Проверено модератором', done: true },
+      { label: 'Передано координатору', done: true },
+      { label: 'Назначить исполнителя', done: false },
+    ],
+  },
+  {
+    id: 3,
+    publicId: 'BR-1007',
+    title: 'Проблема решена',
+    category: 'Природа',
+    location: 'Ольхон',
+    status: 'Решено',
+    nextStep: 'Баллы начислены, заявка закрыта',
+    date: '02.05.2026',
+    points: 100,
+    confirmations: 7,
+    image: rewardImage,
+    timeline: [
+      { label: 'Сообщение получено', done: true },
+      { label: 'Проверено модератором', done: true },
+      { label: 'Передано ответственным', done: true },
+      { label: 'Проблема устранена', done: true },
+      { label: 'Баллы начислены', done: true },
+    ],
+  },
+];
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<Tab>('home');
+  const [selectedCategory, setSelectedCategory] = useState(categories[0].label);
+  const [description, setDescription] = useState('');
+  const [reports, setReports] = useState(initialReports);
+  const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
+  const [pickedImage, setPickedImage] = useState<string | null>(null);
+  const [pickedLocation, setPickedLocation] = useState<LocationPoint | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState(initialReports[0].id);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  const balance = useMemo(
+    () => 1250 + reports.reduce((sum, report) => sum + report.points, 0) - initialReports.reduce((sum, report) => sum + report.points, 0),
+    [reports],
+  );
+
+  useEffect(() => {
+    const loadDraft = async () => {
+      try {
+        const storedDraft = await AsyncStorage.getItem(DRAFT_STORAGE_KEY);
+        if (!storedDraft) return;
+
+        const draft = JSON.parse(storedDraft) as {
+          selectedCategory?: string;
+          description?: string;
+          pickedImage?: string | null;
+          pickedLocation?: LocationPoint | null;
+        };
+
+        if (draft.selectedCategory && categories.some((item) => item.label === draft.selectedCategory)) {
+          setSelectedCategory(draft.selectedCategory);
+        }
+        if (typeof draft.description === 'string') setDescription(draft.description);
+        if (typeof draft.pickedImage === 'string') setPickedImage(draft.pickedImage);
+        if (typeof draft.pickedLocation?.latitude === 'number' && typeof draft.pickedLocation?.longitude === 'number') {
+          setPickedLocation(draft.pickedLocation);
+        }
+      } finally {
+        setDraftLoaded(true);
+      }
+    };
+
+    loadDraft();
+  }, []);
+
+  useEffect(() => {
+    if (!draftLoaded) return;
+
+    AsyncStorage.setItem(
+      DRAFT_STORAGE_KEY,
+      JSON.stringify({ selectedCategory, description, pickedImage, pickedLocation }),
+    ).catch(() => undefined);
+  }, [description, draftLoaded, pickedImage, pickedLocation, selectedCategory]);
+
+  const clearDraft = () => {
+    setSelectedCategory(categories[0].label);
+    setDescription('');
+    setPickedImage(null);
+    setPickedLocation(null);
+    AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => undefined);
+  };
+
+  const submitReport = () => {
+    const category = categories.find((item) => item.label === selectedCategory) ?? categories[0];
+    const nextReport: Report = {
+      id: Date.now(),
+      publicId: `BR-${Math.floor(1200 + Math.random() * 7800)}`,
+      title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Проблема: ${category.label}`,
+      category: category.label,
+      location: pickedLocation ? 'Текущая геопозиция' : 'Иркутская область',
+      status: 'На модерации',
+      nextStep: 'Модератор проверит фото, описание и геоточку',
+      date: new Intl.DateTimeFormat('ru-RU').format(new Date()),
+      points: 50,
+      confirmations: 0,
+      image: pickedImage ? { uri: pickedImage } : reportImage,
+      timeline: [
+        { label: 'Сообщение получено', done: true },
+        { label: 'Проверка модератором', done: false },
+        { label: 'Передача ответственным', done: false },
+        { label: 'Решение проблемы', done: false },
+      ],
+    };
+
+    setReports([nextReport, ...reports]);
+    setSubmittedReport(nextReport);
+    setSelectedReportId(nextReport.id);
+    clearDraft();
+    setActiveTab('success');
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <View style={styles.shell}>
+        <ScrollView style={styles.content} contentContainerStyle={styles.contentInner} showsVerticalScrollIndicator={false}>
+          {activeTab === 'home' && (
+            <HomeScreen balance={balance} reports={reports} onReport={() => setActiveTab('report')} onOpenReports={() => setActiveTab('messages')} />
+          )}
+          {activeTab === 'map' && <MapScreen reports={reports} />}
+          {activeTab === 'report' && (
+            <ReportScreen
+              description={description}
+              selectedCategory={selectedCategory}
+              pickedImage={pickedImage}
+              pickedLocation={pickedLocation}
+              onChangeDescription={setDescription}
+              onSelectCategory={setSelectedCategory}
+              onPickImage={setPickedImage}
+              onPickLocation={setPickedLocation}
+              onSubmit={submitReport}
+              onClearDraft={clearDraft}
+            />
+          )}
+          {activeTab === 'success' && submittedReport && (
+            <SuccessScreen report={submittedReport} onMessages={() => setActiveTab('messages')} onAnother={() => setActiveTab('report')} />
+          )}
+          {activeTab === 'messages' && <MessagesScreen reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} />}
+          {activeTab === 'profile' && <ProfileScreen balance={balance} reports={reports} />}
+        </ScrollView>
+        <BottomNav activeTab={activeTab} onChange={setActiveTab} />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function HomeScreen({
+  balance,
+  reports,
+  onReport,
+  onOpenReports,
+}: {
+  balance: number;
+  reports: Report[];
+  onReport: () => void;
+  onOpenReports: () => void;
+}) {
+  const activeReports = reports.filter((report) => report.status !== 'Решено').length;
+  const solvedReports = reports.filter((report) => report.status === 'Решено').length;
+  const newestReport = reports[0];
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Байкал" rightText={`${balance} баллов`} />
+
+      <View style={styles.heroBlock}>
+        <Text style={styles.heroTitle}>Увидели мусор, вырубку или загрязнение?</Text>
+        <Text style={styles.heroText}>Отправьте фото и точку. Заявку проверят, передадут ответственным и покажут статус.</Text>
+        <Pressable style={styles.primaryButton} onPress={onReport}>
+          <MaterialCommunityIcons name="plus" size={20} color="#ffffff" />
+          <Text style={styles.primaryButtonText}>Сообщить о проблеме</Text>
+        </Pressable>
+      </View>
+
+      <WorkflowStrip />
+
+      <View style={styles.summaryGrid}>
+        <SummaryCell label="Активно" value={`${activeReports}`} />
+        <SummaryCell label="Решено" value={`${solvedReports}`} />
+        <SummaryCell label="Баллы" value={`${balance}`} />
+      </View>
+
+      <SectionHeader title="Последний статус" action="Все заявки" onAction={onOpenReports} />
+      <View style={styles.listPanel}>
+        <InfoRow icon="progress-check" title={newestReport.status} text={newestReport.nextStep} />
+        <ReportRow report={newestReport} />
+      </View>
+
+      <SectionHeader title="Что можно отправить" action="8 типов" />
+      <View style={styles.categoryList}>
+        {categories.slice(0, 4).map((item) => (
+          <InfoRow key={item.label} icon={item.icon} title={item.label} text={item.hint} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ReportScreen({
+  description,
+  selectedCategory,
+  pickedImage,
+  pickedLocation,
+  onChangeDescription,
+  onSelectCategory,
+  onPickImage,
+  onPickLocation,
+  onSubmit,
+  onClearDraft,
+}: {
+  description: string;
+  selectedCategory: string;
+  pickedImage: string | null;
+  pickedLocation: LocationPoint | null;
+  onChangeDescription: (value: string) => void;
+  onSelectCategory: (value: string) => void;
+  onPickImage: (value: string | null) => void;
+  onPickLocation: (value: LocationPoint | null) => void;
+  onSubmit: () => void;
+  onClearDraft: () => void;
+}) {
+  const [formMessage, setFormMessage] = useState('');
+  const isPhotoReady = Boolean(pickedImage);
+  const isDescriptionReady = description.trim().length >= 10;
+  const isLocationReady = Boolean(pickedLocation);
+  const readiness = (isPhotoReady ? 1 : 0) + 1 + (isDescriptionReady ? 1 : 0) + (isLocationReady ? 1 : 0);
+  const canSubmit = readiness === 4;
+  const nextMissing = !isPhotoReady
+    ? 'Добавьте фото проблемы'
+    : !isDescriptionReady
+      ? 'Коротко опишите ситуацию'
+      : !isLocationReady
+        ? 'Добавьте геоточку'
+        : 'Можно отправлять';
+
+  const takePhoto = async () => {
+    setFormMessage('');
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setFormMessage('Разрешите доступ к камере.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [4, 3], quality: 0.82, mediaTypes: ['images'] });
+    if (!result.canceled && result.assets[0]?.uri) onPickImage(result.assets[0].uri);
+  };
+
+  const chooseFromLibrary = async () => {
+    setFormMessage('');
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setFormMessage('Разрешите доступ к фото.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [4, 3], quality: 0.82, mediaTypes: ['images'] });
+    if (!result.canceled && result.assets[0]?.uri) onPickImage(result.assets[0].uri);
+  };
+
+  const useCurrentLocation = async () => {
+    setFormMessage('');
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) {
+      setFormMessage('Разрешите доступ к геопозиции.');
+      return;
+    }
+
+    const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    onPickLocation({ latitude: current.coords.latitude, longitude: current.coords.longitude });
+  };
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Новая заявка" rightText={`${readiness}/4`} />
+      <View style={styles.taskHint}>
+        <Text style={styles.taskHintLabel}>Что делать</Text>
+        <Text style={styles.taskHintTitle}>{nextMissing}</Text>
+        <Text style={styles.taskHintText}>Категория уже выбрана. Остальные пункты нужны, чтобы заявку можно было проверить без переписки.</Text>
+      </View>
+
+      <StepBlock number="1" title="Фото" done={isPhotoReady}>
+        <View style={styles.photoBox}>
+          <Image source={pickedImage ? { uri: pickedImage } : reportImage} style={styles.photoPreview} />
+          <View style={styles.inlineActions}>
+            <Pressable style={styles.outlineButton} onPress={takePhoto}>
+              <MaterialCommunityIcons name="camera-outline" size={18} color="#141414" />
+              <Text style={styles.outlineButtonText}>Камера</Text>
+            </Pressable>
+            <Pressable style={styles.outlineButton} onPress={chooseFromLibrary}>
+              <MaterialCommunityIcons name="image-outline" size={18} color="#141414" />
+              <Text style={styles.outlineButtonText}>Галерея</Text>
+            </Pressable>
+          </View>
+        </View>
+      </StepBlock>
+
+      <StepBlock number="2" title={`Категория: ${selectedCategory}`} done>
+        <View style={styles.categoryChips}>
+          {categories.map((item) => {
+            const active = selectedCategory === item.label;
+            return (
+              <Pressable key={item.label} style={[styles.chip, active && styles.chipActive]} onPress={() => onSelectCategory(item.label)}>
+                <MaterialCommunityIcons name={item.icon} size={16} color={active ? '#ffffff' : '#6b7280'} />
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </StepBlock>
+
+      <StepBlock number="3" title="Описание места" done={isDescriptionReady}>
+        <TextInput
+          value={description}
+          onChangeText={onChangeDescription}
+          multiline
+          placeholder="Что произошло и как найти место?"
+          placeholderTextColor="#8b8b8b"
+          style={styles.textArea}
+        />
+      </StepBlock>
+
+      <StepBlock number="4" title="Точка на карте" done={isLocationReady}>
+        <Pressable style={styles.locationRow} onPress={useCurrentLocation}>
+          <MaterialCommunityIcons name={isLocationReady ? 'map-marker-check-outline' : 'crosshairs-gps'} size={22} color="#141414" />
+          <View style={styles.rowCopy}>
+            <Text style={styles.rowTitle}>{isLocationReady ? 'Точка добавлена' : 'Добавить текущую точку'}</Text>
+            <Text style={styles.rowText}>
+              {pickedLocation ? `${pickedLocation.latitude.toFixed(5)}, ${pickedLocation.longitude.toFixed(5)}` : 'Нужен доступ к геопозиции'}
+            </Text>
+          </View>
+        </Pressable>
+      </StepBlock>
+
+      {formMessage ? <Text style={styles.inlineHint}>{formMessage}</Text> : null}
+
+      <Pressable style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]} onPress={canSubmit ? onSubmit : undefined}>
+        <Text style={styles.primaryButtonText}>{canSubmit ? 'Отправить заявку' : nextMissing}</Text>
+      </Pressable>
+      <Pressable style={styles.textButton} onPress={onClearDraft}>
+        <Text style={styles.textButtonText}>Очистить черновик</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SuccessScreen({ report, onMessages, onAnother }: { report: Report; onMessages: () => void; onAnother: () => void }) {
+  return (
+    <View style={styles.screen}>
+      <View style={styles.successBlock}>
+        <View style={styles.successIcon}>
+          <MaterialCommunityIcons name="check" size={34} color="#ffffff" />
+        </View>
+        <Text style={styles.successTitle}>Заявка принята</Text>
+        <Text style={styles.successText}>{report.publicId} отправлена на проверку. Дальше вы просто следите за статусом.</Text>
+      </View>
+
+      <View style={styles.listPanel}>
+        <InfoRow icon="eye-check-outline" title="1. Проверим заявку" text="Модератор смотрит фото, описание и точку." />
+        <InfoRow icon="send-check-outline" title="2. Передадим дальше" text="После проверки заявка уйдет ответственным." />
+        <InfoRow icon="gift-outline" title="3. Начислим баллы" text="Баллы появятся после подтверждения полезного действия." />
+      </View>
+
+      <Pressable style={styles.primaryButton} onPress={onMessages}>
+        <Text style={styles.primaryButtonText}>Открыть заявки</Text>
+      </Pressable>
+      <Pressable style={styles.textButton} onPress={onAnother}>
+        <Text style={styles.textButtonText}>Сообщить еще</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function MessagesScreen({
+  reports,
+  selectedReportId,
+  onSelectReport,
+}: {
+  reports: Report[];
+  selectedReportId: number;
+  onSelectReport: (id: number) => void;
+}) {
+  const [filter, setFilter] = useState<ReportFilter>('Все');
+  const visibleReports = reports.filter((report) => {
+    if (filter === 'Все') return true;
+    if (filter === 'Активные') return report.status !== 'Решено';
+    return report.status === 'Решено';
+  });
+  const selectedReport = reports.find((report) => report.id === selectedReportId) ?? reports[0];
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Мои заявки" rightText={`${reports.length}`} />
+      <Text style={styles.leadText}>Откройте заявку, чтобы увидеть текущий этап и следующий шаг.</Text>
+      <SegmentedControl value={filter} onChange={setFilter} />
+
+      <View style={styles.listPanel}>
+        {visibleReports.map((report) => (
+          <Pressable key={report.id} onPress={() => onSelectReport(report.id)}>
+            <ReportRow report={report} selected={selectedReport.id === report.id} />
+          </Pressable>
+        ))}
+      </View>
+
+      <ReportDetail report={selectedReport} />
+    </View>
+  );
+}
+
+function MapScreen({ reports }: { reports: Report[] }) {
+  const [mapFilter, setMapFilter] = useState('Все');
+  const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
+  const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Карта" rightText={`${filtered.length}`} />
+      <Text style={styles.leadText}>Здесь видно проблемы рядом. Если вы тоже видели проблему, подтвердите ее.</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        {filters.map((item) => (
+          <Pressable key={item} style={[styles.chip, mapFilter === item && styles.chipActive]} onPress={() => setMapFilter(item)}>
+            <Text style={[styles.chipText, mapFilter === item && styles.chipTextActive]}>{item}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <View style={styles.mapMock}>
+        <Text style={styles.mapTitle}>Иркутская область</Text>
+        <View style={[styles.mapPin, { top: '26%', left: '62%' }]} />
+        <View style={[styles.mapPin, { top: '50%', left: '30%' }]} />
+        <View style={[styles.mapPin, { top: '68%', left: '54%' }]} />
+      </View>
+
+      <View style={styles.listPanel}>
+        <InfoRow icon="map-marker-outline" title="Ближайшая заявка" text={(filtered[0] ?? reports[0]).title} />
+        <Pressable style={styles.outlineWideButton}>
+          <Text style={styles.outlineButtonText}>Подтвердить проблему</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function ProfileScreen({ balance, reports }: { balance: number; reports: Report[] }) {
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Профиль" rightText="Демо" />
+      <View style={styles.profileCard}>
+        <Text style={styles.profileInitial}>К</Text>
+        <View style={styles.rowCopy}>
+          <Text style={styles.rowTitle}>Участник Байкала</Text>
+          <Text style={styles.rowText}>Контакты не видны публично</Text>
+        </View>
+      </View>
+
+      <View style={styles.summaryGrid}>
+        <SummaryCell label="Баллы" value={`${balance}`} />
+        <SummaryCell label="Заявки" value={`${reports.length}`} />
+        <SummaryCell label="Доверие" value="82%" />
+      </View>
+
+      <View style={styles.listPanel}>
+        <InfoRow icon="shield-check-outline" title="Зачем профиль" text="Здесь будут баллы, приватность и доверие пользователя." />
+        <InfoRow icon="bell-outline" title="Что будет дальше" text="После backend появятся пуши о смене статуса." />
+        <InfoRow icon="file-document-outline" title="Правила сервиса" text="Перед релизом добавим документы и политику данных." />
+      </View>
+    </View>
+  );
+}
+
+function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab) => void }) {
+  const tabs: Array<{ id: Tab; icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }> = [
+    { id: 'home', icon: 'home-outline', label: 'Главная' },
+    { id: 'map', icon: 'map-marker-outline', label: 'Карта' },
+    { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
+    { id: 'messages', icon: 'text-box-outline', label: 'Заявки' },
+    { id: 'profile', icon: 'account-outline', label: 'Профиль' },
+  ];
+
+  return (
+    <View style={styles.bottomNav}>
+      {tabs.map((tab) => {
+        const active = activeTab === tab.id || (activeTab === 'success' && tab.id === 'report');
+        return (
+          <Pressable key={tab.id} style={[styles.navItem, tab.id === 'report' && styles.navActionItem, noWebOutline]} onPress={() => onChange(tab.id)}>
+            {tab.id === 'report' ? (
+              <View style={styles.navActionCircle}>
+                <MaterialCommunityIcons name="plus" size={24} color="#ffffff" />
+              </View>
+            ) : (
+              <MaterialCommunityIcons name={tab.icon} size={23} color={active ? '#141414' : '#8b8b8b'} />
+            )}
+            <Text style={[styles.navText, active && styles.navTextActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function AppHeader({ title, rightText }: { title: string; rightText?: string }) {
+  return (
+    <View style={styles.appHeader}>
+      <View>
+        <Text style={styles.appTitle}>{title}</Text>
+        <Text style={styles.appSubtitle}>Байкал в наших руках</Text>
+      </View>
+      {rightText ? (
+        <View style={styles.headerBadge}>
+          <Text style={styles.headerBadgeText}>{rightText}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SectionHeader({ title, action, onAction }: { title: string; action: string; onAction?: () => void }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Pressable onPress={onAction}>
+        <Text style={styles.sectionAction}>{action}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function SummaryCell({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryCell}>
+      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function WorkflowStrip() {
+  return (
+    <View style={styles.workflowStrip}>
+      <WorkflowStep icon="camera-outline" title="Снимок" text="Покажите проблему" />
+      <WorkflowStep icon="map-marker-outline" title="Точка" text="Укажите место" />
+      <WorkflowStep icon="progress-check" title="Статус" text="Следите в заявках" />
+    </View>
+  );
+}
+
+function WorkflowStep({ icon, title, text }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; text: string }) {
+  return (
+    <View style={styles.workflowStep}>
+      <View style={styles.workflowIcon}>
+        <MaterialCommunityIcons name={icon} size={18} color="#ffffff" />
+      </View>
+      <Text style={styles.workflowTitle}>{title}</Text>
+      <Text style={styles.workflowText}>{text}</Text>
+    </View>
+  );
+}
+
+function InfoRow({ icon, title, text }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; text: string }) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.rowIcon}>
+        <MaterialCommunityIcons name={icon} size={21} color="#141414" />
+      </View>
+      <View style={styles.rowCopy}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={styles.rowText}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
+function StepBlock({ number, title, done, children }: { number: string; title: string; done: boolean; children: React.ReactNode }) {
+  return (
+    <View style={styles.stepBlock}>
+      <View style={styles.stepHeader}>
+        <View style={[styles.stepNumber, done && styles.stepNumberDone]}>
+          <Text style={[styles.stepNumberText, done && styles.stepNumberTextDone]}>{done ? '✓' : number}</Text>
+        </View>
+        <Text style={styles.stepTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function SegmentedControl({ value, onChange }: { value: ReportFilter; onChange: (filter: ReportFilter) => void }) {
+  const options: ReportFilter[] = ['Все', 'Активные', 'Решенные'];
+  return (
+    <View style={styles.segmented}>
+      {options.map((item) => (
+        <Pressable key={item} style={[styles.segment, value === item && styles.segmentActive]} onPress={() => onChange(item)}>
+          <Text style={[styles.segmentText, value === item && styles.segmentTextActive]}>{item}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function ReportRow({ report, selected }: { report: Report; selected?: boolean }) {
+  const palette = getStatusPalette(report.status);
+
+  return (
+    <View style={[styles.reportRow, selected && styles.reportRowSelected]}>
+      <Image source={report.image} style={styles.reportThumb} />
+      <View style={styles.reportCopy}>
+        <View style={styles.reportTopLine}>
+          <Text style={styles.reportId}>{report.publicId}</Text>
+          <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
+            <Text style={[styles.statusText, { color: palette.text }]}>{report.status}</Text>
+          </View>
+        </View>
+        <Text style={styles.reportTitle} numberOfLines={1}>{report.title}</Text>
+        <Text style={styles.reportMeta} numberOfLines={1}>{report.location} · {report.date}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ReportDetail({ report }: { report: Report }) {
+  return (
+    <View style={styles.detailPanel}>
+      <Text style={styles.detailLabel}>{report.publicId}</Text>
+      <Text style={styles.detailTitle}>{report.title}</Text>
+      <Text style={styles.detailText}>{report.nextStep}</Text>
+      <View style={styles.timeline}>
+        {report.timeline.map((step) => (
+          <View style={styles.timelineStep} key={step.label}>
+            <View style={[styles.timelineDot, step.done && styles.timelineDotDone]} />
+            <Text style={[styles.timelineText, step.done && styles.timelineTextDone]}>{step.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function getStatusPalette(status: ReportStatus) {
+  if (status === 'Решено') return { bg: '#e7f6ed', text: '#247647' };
+  if (status === 'На модерации') return { bg: '#eeeeee', text: '#5f6368' };
+  if (status === 'Передано') return { bg: '#E4F6F4', text: '#00736F' };
+  return { bg: '#e5f4ff', text: '#1769aa' };
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  shell: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 430,
+    backgroundColor: '#ffffff',
+  },
+  content: {
+    flex: 1,
+  },
+  contentInner: {
+    paddingBottom: 18,
+  },
+  screen: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  appHeader: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  appTitle: {
+    color: '#141414',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  appSubtitle: {
+    color: '#8b8b8b',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  headerBadge: {
+    minHeight: 32,
+    borderRadius: 16,
+    backgroundColor: '#f2f3f5',
+    paddingHorizontal: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBadgeText: {
+    color: '#141414',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  heroBlock: {
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    padding: 16,
+    marginBottom: 12,
+  },
+  heroTitle: {
+    color: '#141414',
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  heroText: {
+    color: '#5f6368',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  primaryButton: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: '#e8eaed',
+  },
+  primaryButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  workflowStrip: {
+    flexDirection: 'row',
+    gap: 7,
+    marginBottom: 12,
+  },
+  workflowStep: {
+    flex: 1,
+    minHeight: 88,
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 10,
+    justifyContent: 'space-between',
+  },
+  workflowIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workflowTitle: {
+    color: '#141414',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+  },
+  workflowText: {
+    color: '#6b7280',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '700',
+  },
+  outlineButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  outlineWideButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outlineButtonText: {
+    color: '#141414',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  textButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textButtonText: {
+    color: '#5f6368',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    gap: 7,
+    marginBottom: 16,
+  },
+  summaryCell: {
+    flex: 1,
+    minHeight: 72,
+    borderRadius: 17,
+    backgroundColor: '#f5f6f7',
+    padding: 11,
+    justifyContent: 'space-between',
+  },
+  summaryValue: {
+    color: '#141414',
+    fontSize: 22,
+    lineHeight: 25,
+    fontWeight: '800',
+  },
+  summaryLabel: {
+    color: '#6b7280',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sectionHeader: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    color: '#141414',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '800',
+  },
+  sectionAction: {
+    color: '#5f6368',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  listPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 6,
+    marginBottom: 14,
+  },
+  categoryList: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 6,
+  },
+  infoRow: {
+    minHeight: 60,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 6,
+  },
+  rowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#f2f3f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowCopy: {
+    flex: 1,
+  },
+  rowTitle: {
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  rowText: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  leadText: {
+    color: '#5f6368',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: -10,
+    marginBottom: 12,
+  },
+  taskHint: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
+    marginTop: -4,
+    marginBottom: 12,
+  },
+  taskHintLabel: {
+    color: '#8b8b8b',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  taskHintTitle: {
+    color: '#141414',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '800',
+  },
+  taskHintText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  stepBlock: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 12,
+    marginBottom: 10,
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberDone: {
+    backgroundColor: '#008F9A',
+  },
+  stepNumberText: {
+    color: '#141414',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  stepNumberTextDone: {
+    color: '#ffffff',
+  },
+  stepTitle: {
+    color: '#141414',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  photoBox: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+  },
+  photoPreview: {
+    width: '100%',
+    height: 136,
+    backgroundColor: '#e8eaed',
+  },
+  inlineActions: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 10,
+  },
+  categoryChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterRow: {
+    gap: 8,
+    paddingBottom: 14,
+  },
+  chip: {
+    minHeight: 36,
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chipActive: {
+    backgroundColor: '#008F9A',
+    borderColor: '#008F9A',
+  },
+  chipText: {
+    color: '#5f6368',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  chipTextActive: {
+    color: '#ffffff',
+  },
+  textArea: {
+    minHeight: 104,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 20,
+    padding: 12,
+    textAlignVertical: 'top',
+  },
+  locationRow: {
+    minHeight: 58,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  inlineHint: {
+    color: '#00736F',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  successBlock: {
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    padding: 18,
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  successIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  successTitle: {
+    color: '#141414',
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  successText: {
+    color: '#5f6368',
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  segmented: {
+    minHeight: 46,
+    borderRadius: 18,
+    backgroundColor: '#f2f3f5',
+    padding: 4,
+    flexDirection: 'row',
+    marginBottom: 14,
+  },
+  segment: {
+    flex: 1,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentActive: {
+    backgroundColor: '#ffffff',
+  },
+  segmentText: {
+    color: '#6b7280',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  segmentTextActive: {
+    color: '#141414',
+  },
+  reportRow: {
+    minHeight: 72,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    marginBottom: 6,
+  },
+  reportRowSelected: {
+    borderWidth: 2,
+    borderColor: '#008F9A',
+    padding: 8,
+  },
+  reportThumb: {
+    width: 50,
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: '#e8eaed',
+  },
+  reportCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reportTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  reportId: {
+    color: '#8b8b8b',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  reportTitle: {
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  reportMeta: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  statusPill: {
+    minHeight: 24,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  detailPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 16,
+  },
+  detailLabel: {
+    color: '#8b8b8b',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  detailTitle: {
+    color: '#141414',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  detailText: {
+    color: '#5f6368',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  timeline: {
+    marginTop: 14,
+    gap: 10,
+  },
+  timelineStep: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  timelineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#c7cbd1',
+  },
+  timelineDotDone: {
+    backgroundColor: '#008F9A',
+  },
+  timelineText: {
+    color: '#6b7280',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  timelineTextDone: {
+    color: '#141414',
+  },
+  mapMock: {
+    height: 320,
+    borderRadius: 22,
+    backgroundColor: '#eef3f7',
+    overflow: 'hidden',
+    marginBottom: 14,
+    padding: 18,
+  },
+  mapTitle: {
+    color: '#141414',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  mapPin: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#008F9A',
+    borderWidth: 4,
+    borderColor: '#ffffff',
+  },
+  profileCard: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 12,
+  },
+  profileInitial: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#008F9A',
+    color: '#ffffff',
+    textAlign: 'center',
+    lineHeight: 54,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  bottomNav: {
+    minHeight: 72,
+    borderTopWidth: 1,
+    borderTopColor: '#eeeeee',
+    backgroundColor: '#ffffff',
+    paddingTop: 8,
+    paddingHorizontal: 6,
+    flexDirection: 'row',
+  },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 3,
+  },
+  navActionItem: {
+    marginTop: -10,
+  },
+  navActionCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navText: {
+    color: '#8b8b8b',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  navTextActive: {
+    color: '#141414',
+  },
+});

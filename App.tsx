@@ -4,7 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   ImageSourcePropType,
@@ -25,6 +25,13 @@ type ReportFilter = 'Все' | 'Активные' | 'Решенные';
 type LocationPoint = {
   latitude: number;
   longitude: number;
+};
+
+type MapPoint = LocationPoint & {
+  label: string;
+  area: string;
+  top: `${number}%`;
+  left: `${number}%`;
 };
 
 type Category = {
@@ -60,6 +67,12 @@ const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
+
+const mapPoints: MapPoint[] = [
+  { label: 'Большое Голоустное', area: 'лесной участок у берега', latitude: 52.03582, longitude: 105.40611, top: '26%', left: '62%' },
+  { label: 'Листвянка', area: 'береговая линия', latitude: 51.85347, longitude: 104.86931, top: '50%', left: '30%' },
+  { label: 'Ольхон', area: 'тропа у мыса', latitude: 53.15912, longitude: 107.38391, top: '68%', left: '54%' },
+];
 
 const categories: Category[] = [
   { label: 'Вырубка', icon: 'pine-tree', hint: 'лес, просеки, техника', evidenceTip: 'Снимите пни, следы техники и общий план участка.', pointsPreview: 70 },
@@ -157,8 +170,10 @@ export default function App() {
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
   const [pickedImage, setPickedImage] = useState<string | null>(null);
   const [pickedLocation, setPickedLocation] = useState<LocationPoint | null>(null);
+  const [pickedLocationLabel, setPickedLocationLabel] = useState('');
   const [selectedReportId, setSelectedReportId] = useState(initialReports[0].id);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const balance = useMemo(
     () => 1250 + reports.reduce((sum, report) => sum + report.points, 0) - initialReports.reduce((sum, report) => sum + report.points, 0),
@@ -176,6 +191,7 @@ export default function App() {
           description?: string;
           pickedImage?: string | null;
           pickedLocation?: LocationPoint | null;
+          pickedLocationLabel?: string;
         };
 
         if (draft.selectedCategory && categories.some((item) => item.label === draft.selectedCategory)) {
@@ -186,6 +202,7 @@ export default function App() {
         if (typeof draft.pickedLocation?.latitude === 'number' && typeof draft.pickedLocation?.longitude === 'number') {
           setPickedLocation(draft.pickedLocation);
         }
+        if (typeof draft.pickedLocationLabel === 'string') setPickedLocationLabel(draft.pickedLocationLabel);
       } finally {
         setDraftLoaded(true);
       }
@@ -199,15 +216,20 @@ export default function App() {
 
     AsyncStorage.setItem(
       DRAFT_STORAGE_KEY,
-      JSON.stringify({ selectedCategory, description, pickedImage, pickedLocation }),
+      JSON.stringify({ selectedCategory, description, pickedImage, pickedLocation, pickedLocationLabel }),
     ).catch(() => undefined);
-  }, [description, draftLoaded, pickedImage, pickedLocation, selectedCategory]);
+  }, [description, draftLoaded, pickedImage, pickedLocation, pickedLocationLabel, selectedCategory]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [activeTab]);
 
   const clearDraft = () => {
     setSelectedCategory(categories[0].label);
     setDescription('');
     setPickedImage(null);
     setPickedLocation(null);
+    setPickedLocationLabel('');
     AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => undefined);
   };
 
@@ -219,7 +241,7 @@ export default function App() {
       publicId: `BR-${Math.floor(1200 + Math.random() * 7800)}`,
       title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Обращение: ${category.label}`,
       category: category.label,
-      location: pickedLocation ? 'Текущая точка' : 'Иркутская область',
+      location: pickedLocation ? pickedLocationLabel || 'Выбранная точка' : 'Иркутская область',
       status: 'На модерации',
       nextStep: 'Модератор проверит фото, описание и место',
       authorityLabel: 'Модерация проекта',
@@ -251,7 +273,7 @@ export default function App() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <View style={styles.shell}>
-        <ScrollView style={styles.content} contentContainerStyle={styles.contentInner} showsVerticalScrollIndicator={false}>
+        <ScrollView key={activeTab} ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentInner} showsVerticalScrollIndicator={false}>
           {activeTab === 'home' && (
             <HomeScreen balance={balance} reports={reports} onReport={() => setActiveTab('report')} onOpenReports={() => setActiveTab('messages')} />
           )}
@@ -263,10 +285,12 @@ export default function App() {
               selectedCategory={selectedCategory}
               pickedImage={pickedImage}
               pickedLocation={pickedLocation}
+              pickedLocationLabel={pickedLocationLabel}
               onChangeDescription={setDescription}
               onSelectCategory={setSelectedCategory}
               onPickImage={setPickedImage}
               onPickLocation={setPickedLocation}
+              onPickLocationLabel={setPickedLocationLabel}
               onSubmit={submitReport}
               onClearDraft={clearDraft}
               onOpenDuplicate={(id) => {
@@ -357,10 +381,12 @@ function ReportScreen({
   selectedCategory,
   pickedImage,
   pickedLocation,
+  pickedLocationLabel,
   onChangeDescription,
   onSelectCategory,
   onPickImage,
   onPickLocation,
+  onPickLocationLabel,
   onSubmit,
   onClearDraft,
   onOpenDuplicate,
@@ -370,16 +396,19 @@ function ReportScreen({
   selectedCategory: string;
   pickedImage: string | null;
   pickedLocation: LocationPoint | null;
+  pickedLocationLabel: string;
   onChangeDescription: (value: string) => void;
   onSelectCategory: (value: string) => void;
   onPickImage: (value: string | null) => void;
   onPickLocation: (value: LocationPoint | null) => void;
+  onPickLocationLabel: (value: string) => void;
   onSubmit: () => void;
   onClearDraft: () => void;
   onOpenDuplicate: (id: number) => void;
 }) {
   const [formMessage, setFormMessage] = useState('');
   const [ignoreDuplicateId, setIgnoreDuplicateId] = useState<number | null>(null);
+  const [mapPickerOpen, setMapPickerOpen] = useState(Boolean(pickedLocation));
   const categoryMeta = categories.find((item) => item.label === selectedCategory) ?? categories[0];
   const isPhotoReady = Boolean(pickedImage);
   const isDescriptionReady = description.trim().length >= 10;
@@ -395,7 +424,7 @@ function ReportScreen({
     : !isDescriptionReady
       ? 'Коротко опишите ситуацию'
       : !isLocationReady
-        ? 'Добавьте геоточку'
+        ? 'Выберите место на карте'
         : 'Можно отправлять';
 
   const takePhoto = async () => {
@@ -432,6 +461,14 @@ function ReportScreen({
 
     const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
     onPickLocation({ latitude: current.coords.latitude, longitude: current.coords.longitude });
+    onPickLocationLabel('Текущее местоположение');
+    setMapPickerOpen(true);
+  };
+
+  const chooseMapPoint = (point: MapPoint) => {
+    onPickLocation({ latitude: point.latitude, longitude: point.longitude });
+    onPickLocationLabel(point.label);
+    setMapPickerOpen(true);
   };
 
   return (
@@ -440,7 +477,7 @@ function ReportScreen({
       <View style={styles.taskHint}>
         <Text style={styles.taskHintLabel}>Следующий шаг</Text>
         <Text style={styles.taskHintTitle}>{nextMissing}</Text>
-        <Text style={styles.taskHintText}>Фото, описание и геоточка помогают проверить обращение без дополнительных вопросов.</Text>
+        <Text style={styles.taskHintText}>Фото, описание и место на карте помогают проверить обращение без дополнительных вопросов.</Text>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${(readiness / 4) * 100}%` }]} />
         </View>
@@ -505,16 +542,15 @@ function ReportScreen({
         <EvidenceMeter score={evidenceScore} />
       </StepBlock>
 
-      <StepBlock number="4" title="Точка на карте" done={isLocationReady}>
-        <Pressable style={styles.locationRow} onPress={useCurrentLocation}>
-          <MaterialCommunityIcons name={isLocationReady ? 'map-marker-check-outline' : 'crosshairs-gps'} size={22} color="#141414" />
-          <View style={styles.rowCopy}>
-            <Text style={styles.rowTitle}>{isLocationReady ? 'Точка добавлена' : 'Добавить текущую точку'}</Text>
-            <Text style={styles.rowText}>
-              {pickedLocation ? `${pickedLocation.latitude.toFixed(5)}, ${pickedLocation.longitude.toFixed(5)}` : 'Нужен доступ к местоположению'}
-            </Text>
-          </View>
-        </Pressable>
+      <StepBlock number="4" title="Место на карте" done={isLocationReady}>
+        <LocationPicker
+          pickedLocation={pickedLocation}
+          pickedLocationLabel={pickedLocationLabel}
+          mapPickerOpen={mapPickerOpen}
+          onUseCurrentLocation={useCurrentLocation}
+          onOpenMap={() => setMapPickerOpen(true)}
+          onChoosePoint={chooseMapPoint}
+        />
       </StepBlock>
 
       {formMessage ? <Text style={styles.inlineHint}>{formMessage}</Text> : null}
@@ -598,8 +634,11 @@ function MessagesScreen({
 
 function MapScreen({ reports }: { reports: Report[] }) {
   const [mapFilter, setMapFilter] = useState('Все');
+  const [confirmedReportId, setConfirmedReportId] = useState<number | null>(null);
   const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
+  const nearestReport = filtered[0] ?? reports[0];
+  const isConfirmed = confirmedReportId === nearestReport.id;
 
   return (
     <View style={styles.screen}>
@@ -615,7 +654,7 @@ function MapScreen({ reports }: { reports: Report[] }) {
 
       <View style={styles.mapMock}>
         <Image source={heroImage} style={styles.mapImage} resizeMode="cover" />
-        <LinearGradient colors={['rgba(255,255,255,0.22)', 'rgba(238,243,247,0.88)']} style={styles.mapImageOverlay} />
+        <LinearGradient colors={['rgba(255,255,255,0.04)', 'rgba(238,243,247,0.58)']} style={styles.mapImageOverlay} />
         <Text style={styles.mapTitle}>Иркутская область</Text>
         <View style={styles.mapLegend}>
           <LegendItem color="#008F9A" label="проверено" />
@@ -628,9 +667,15 @@ function MapScreen({ reports }: { reports: Report[] }) {
       </View>
 
       <View style={styles.listPanel}>
-        <InfoRow icon="map-marker-outline" title="Ближайшая заявка" text={`${(filtered[0] ?? reports[0]).title} · ${(filtered[0] ?? reports[0]).confirmations} подтвержд.`} />
-        <Pressable style={styles.outlineWideButton}>
-          <Text style={styles.outlineButtonText}>Подтвердить обращение</Text>
+        <InfoRow
+          icon={isConfirmed ? 'check-circle-outline' : 'map-marker-outline'}
+          title={isConfirmed ? 'Вы подтвердили заявку' : 'Ближайшая заявка'}
+          text={`${nearestReport.title} · ${nearestReport.confirmations + (isConfirmed ? 1 : 0)} подтвержд.`}
+        />
+        <Pressable style={[styles.outlineWideButton, isConfirmed && styles.outlineWideButtonActive]} onPress={() => setConfirmedReportId(nearestReport.id)}>
+          <Text style={[styles.outlineButtonText, isConfirmed && styles.outlineButtonTextActive]}>
+            {isConfirmed ? 'Подтверждено' : 'Подтвердить обращение'}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -842,6 +887,78 @@ function SimilarReportCard({ report, onOpen, onDismiss }: { report: Report; onOp
             <Text style={styles.similarGhostText}>Продолжить новую</Text>
           </Pressable>
         </View>
+      </View>
+    </View>
+  );
+}
+
+function LocationPicker({
+  pickedLocation,
+  pickedLocationLabel,
+  mapPickerOpen,
+  onUseCurrentLocation,
+  onOpenMap,
+  onChoosePoint,
+}: {
+  pickedLocation: LocationPoint | null;
+  pickedLocationLabel: string;
+  mapPickerOpen: boolean;
+  onUseCurrentLocation: () => void;
+  onOpenMap: () => void;
+  onChoosePoint: (point: MapPoint) => void;
+}) {
+  const activePoint = mapPoints.find(
+    (point) => point.latitude === pickedLocation?.latitude && point.longitude === pickedLocation?.longitude,
+  );
+
+  return (
+    <View style={styles.locationPicker}>
+      <View style={styles.locationActions}>
+        <Pressable style={styles.locationAction} onPress={onUseCurrentLocation}>
+          <MaterialCommunityIcons name="crosshairs-gps" size={18} color="#141414" />
+          <Text style={styles.locationActionText}>Мое место</Text>
+        </Pressable>
+        <Pressable style={styles.locationAction} onPress={onOpenMap}>
+          <MaterialCommunityIcons name="map-search-outline" size={18} color="#141414" />
+          <Text style={styles.locationActionText}>Выбрать на карте</Text>
+        </Pressable>
+      </View>
+
+      {mapPickerOpen ? (
+        <View style={styles.locationMap}>
+          <Image source={heroImage} style={styles.locationMapImage} resizeMode="cover" />
+          <LinearGradient colors={['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.54)']} style={styles.locationMapOverlay} />
+          {mapPoints.map((point) => {
+            const active = activePoint?.label === point.label;
+            return (
+              <Pressable
+                key={point.label}
+                style={[styles.locationMapPin, { top: point.top, left: point.left }, active && styles.locationMapPinActive]}
+                onPress={() => onChoosePoint(point)}
+              >
+                <View style={[styles.locationMapPinCore, active && styles.locationMapPinCoreActive]} />
+              </Pressable>
+            );
+          })}
+          <View style={styles.locationMapCopy}>
+            <Text style={styles.locationMapTitle}>{pickedLocationLabel || 'Выберите точку'}</Text>
+            <Text style={styles.locationMapText}>
+              {pickedLocation ? `${pickedLocation.latitude.toFixed(5)}, ${pickedLocation.longitude.toFixed(5)}` : 'Нажмите на точку на карте или используйте текущее место'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={styles.locationPointList}>
+        {mapPoints.map((point) => {
+          const active = activePoint?.label === point.label;
+          return (
+            <Pressable key={point.label} style={[styles.locationPoint, active && styles.locationPointActive]} onPress={() => onChoosePoint(point)}>
+              <Text style={[styles.locationPointTitle, active && styles.locationPointTitleActive]}>{point.label}</Text>
+              <Text style={[styles.locationPointText, active && styles.locationPointTextActive]}>{point.area}</Text>
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -1316,10 +1433,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  outlineWideButtonActive: {
+    backgroundColor: '#008F9A',
+    borderColor: '#008F9A',
+  },
   outlineButtonText: {
     color: '#141414',
     fontSize: 14,
     fontWeight: '800',
+  },
+  outlineButtonTextActive: {
+    color: '#ffffff',
   },
   textButton: {
     minHeight: 48,
@@ -1629,14 +1753,136 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  locationRow: {
-    minHeight: 58,
-    borderRadius: 16,
+  locationPicker: {
+    gap: 10,
+  },
+  locationActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  locationAction: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 15,
     backgroundColor: '#ffffff',
-    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 7,
+  },
+  locationActionText: {
+    color: '#141414',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  locationMap: {
+    height: 230,
+    borderRadius: 18,
+    backgroundColor: '#eef3f7',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  locationMapImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  locationMapOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  locationMapPin: {
+    position: 'absolute',
+    width: 34,
+    height: 34,
+    marginLeft: -17,
+    marginTop: -17,
+    borderRadius: 17,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.72)',
+  },
+  locationMapPinActive: {
+    backgroundColor: '#008F9A',
+    transform: [{ scale: 1.12 }],
+  },
+  locationMapPinCore: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#008F9A',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  locationMapPinCoreActive: {
+    backgroundColor: '#ffffff',
+    borderColor: '#008F9A',
+  },
+  locationMapCopy: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    padding: 12,
+  },
+  locationMapTitle: {
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  locationMapText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  locationPointList: {
+    gap: 7,
+  },
+  locationPoint: {
+    minHeight: 52,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  locationPointActive: {
+    backgroundColor: '#008F9A',
+    borderColor: '#008F9A',
+  },
+  locationPointTitle: {
+    color: '#141414',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  locationPointTitleActive: {
+    color: '#ffffff',
+  },
+  locationPointText: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 1,
+  },
+  locationPointTextActive: {
+    color: 'rgba(255,255,255,0.82)',
   },
   inlineHint: {
     color: '#00736F',

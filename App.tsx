@@ -55,13 +55,13 @@ const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 
 const categories: Category[] = [
   { label: 'Вырубка', icon: 'pine-tree', hint: 'лес, просеки, техника' },
-  { label: 'Мусор', icon: 'trash-can-outline', hint: 'берег, тропы, пикники' },
+  { label: 'Мусор', icon: 'trash-can-outline', hint: 'берег, тропы, места отдыха' },
   { label: 'Свалка', icon: 'dump-truck', hint: 'крупный мусор' },
   { label: 'Вода', icon: 'water-outline', hint: 'загрязнение воды' },
   { label: 'Стройка', icon: 'office-building-cog-outline', hint: 'работы без табличек' },
   { label: 'Разлив', icon: 'oil', hint: 'топливо, пятна' },
   { label: 'Природа', icon: 'leaf', hint: 'повреждение троп' },
-  { label: 'Другое', icon: 'dots-horizontal', hint: 'иная проблема' },
+  { label: 'Другое', icon: 'dots-horizontal', hint: 'другая ситуация' },
 ];
 
 const initialReports: Report[] = [
@@ -79,7 +79,7 @@ const initialReports: Report[] = [
     image: reportImage,
     timeline: [
       { label: 'Сообщение получено', done: true },
-      { label: 'Фото и точка проверены', done: true },
+      { label: 'Фото и место проверены', done: true },
       { label: 'Передано ответственным', done: true },
       { label: 'Проверка на месте', done: true },
       { label: 'Ожидаем результат', done: false },
@@ -101,13 +101,13 @@ const initialReports: Report[] = [
       { label: 'Сообщение получено', done: true },
       { label: 'Проверено модератором', done: true },
       { label: 'Передано координатору', done: true },
-      { label: 'Назначить исполнителя', done: false },
+      { label: 'Назначение исполнителя', done: false },
     ],
   },
   {
     id: 3,
     publicId: 'BR-1007',
-    title: 'Проблема решена',
+    title: 'Поврежденная тропа восстановлена',
     category: 'Природа',
     location: 'Ольхон',
     status: 'Решено',
@@ -193,11 +193,11 @@ export default function App() {
     const nextReport: Report = {
       id: Date.now(),
       publicId: `BR-${Math.floor(1200 + Math.random() * 7800)}`,
-      title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Проблема: ${category.label}`,
+      title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Обращение: ${category.label}`,
       category: category.label,
-      location: pickedLocation ? 'Текущая геопозиция' : 'Иркутская область',
+      location: pickedLocation ? 'Текущая точка' : 'Иркутская область',
       status: 'На модерации',
-      nextStep: 'Модератор проверит фото, описание и геоточку',
+      nextStep: 'Модератор проверит фото, описание и место',
       date: new Intl.DateTimeFormat('ru-RU').format(new Date()),
       points: 50,
       confirmations: 0,
@@ -206,7 +206,7 @@ export default function App() {
         { label: 'Сообщение получено', done: true },
         { label: 'Проверка модератором', done: false },
         { label: 'Передача ответственным', done: false },
-        { label: 'Решение проблемы', done: false },
+        { label: 'Работа по обращению', done: false },
       ],
     };
 
@@ -272,8 +272,8 @@ function HomeScreen({
       <AppHeader title="Байкал" rightText={`${balance} баллов`} />
 
       <View style={styles.heroBlock}>
-        <Text style={styles.heroTitle}>Увидели мусор, вырубку или загрязнение?</Text>
-        <Text style={styles.heroText}>Отправьте фото и точку. Заявку проверят, передадут ответственным и покажут статус.</Text>
+        <Text style={styles.heroTitle}>Сообщите о проблеме на Байкале</Text>
+        <Text style={styles.heroText}>Добавьте фото, описание и геоточку. Мы покажем, что происходит с заявкой.</Text>
         <Pressable style={styles.primaryButton} onPress={onReport}>
           <MaterialCommunityIcons name="plus" size={20} color="#ffffff" />
           <Text style={styles.primaryButtonText}>Сообщить о проблеме</Text>
@@ -294,7 +294,7 @@ function HomeScreen({
         <ReportRow report={newestReport} />
       </View>
 
-      <SectionHeader title="Что можно отправить" action="8 типов" />
+      <SectionHeader title="Что можно сообщить" action="8 типов" />
       <View style={styles.categoryList}>
         {categories.slice(0, 4).map((item) => (
           <InfoRow key={item.label} icon={item.icon} title={item.label} text={item.hint} />
@@ -369,7 +369,7 @@ function ReportScreen({
     setFormMessage('');
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) {
-      setFormMessage('Разрешите доступ к геопозиции.');
+      setFormMessage('Разрешите доступ к местоположению.');
       return;
     }
 
@@ -381,9 +381,9 @@ function ReportScreen({
     <View style={styles.screen}>
       <AppHeader title="Новая заявка" rightText={`${readiness}/4`} />
       <View style={styles.taskHint}>
-        <Text style={styles.taskHintLabel}>Что делать</Text>
+        <Text style={styles.taskHintLabel}>Следующий шаг</Text>
         <Text style={styles.taskHintTitle}>{nextMissing}</Text>
-        <Text style={styles.taskHintText}>Категория уже выбрана. Остальные пункты нужны, чтобы заявку можно было проверить без переписки.</Text>
+        <Text style={styles.taskHintText}>Фото, описание и геоточка помогают проверить обращение без дополнительных вопросов.</Text>
       </View>
 
       <StepBlock number="1" title="Фото" done={isPhotoReady}>
@@ -433,7 +433,7 @@ function ReportScreen({
           <View style={styles.rowCopy}>
             <Text style={styles.rowTitle}>{isLocationReady ? 'Точка добавлена' : 'Добавить текущую точку'}</Text>
             <Text style={styles.rowText}>
-              {pickedLocation ? `${pickedLocation.latitude.toFixed(5)}, ${pickedLocation.longitude.toFixed(5)}` : 'Нужен доступ к геопозиции'}
+              {pickedLocation ? `${pickedLocation.latitude.toFixed(5)}, ${pickedLocation.longitude.toFixed(5)}` : 'Нужен доступ к местоположению'}
             </Text>
           </View>
         </Pressable>
@@ -459,12 +459,12 @@ function SuccessScreen({ report, onMessages, onAnother }: { report: Report; onMe
           <MaterialCommunityIcons name="check" size={34} color="#ffffff" />
         </View>
         <Text style={styles.successTitle}>Заявка принята</Text>
-        <Text style={styles.successText}>{report.publicId} отправлена на проверку. Дальше вы просто следите за статусом.</Text>
+        <Text style={styles.successText}>{report.publicId} отправлена на проверку. Статус будет обновляться в разделе «Заявки».</Text>
       </View>
 
       <View style={styles.listPanel}>
-        <InfoRow icon="eye-check-outline" title="1. Проверим заявку" text="Модератор смотрит фото, описание и точку." />
-        <InfoRow icon="send-check-outline" title="2. Передадим дальше" text="После проверки заявка уйдет ответственным." />
+        <InfoRow icon="eye-check-outline" title="1. Проверим заявку" text="Модератор проверит фото, описание и место." />
+        <InfoRow icon="send-check-outline" title="2. Передадим ответственным" text="После проверки заявку получит профильная служба." />
         <InfoRow icon="gift-outline" title="3. Начислим баллы" text="Баллы появятся после подтверждения полезного действия." />
       </View>
 
@@ -522,7 +522,7 @@ function MapScreen({ reports }: { reports: Report[] }) {
   return (
     <View style={styles.screen}>
       <AppHeader title="Карта" rightText={`${filtered.length}`} />
-      <Text style={styles.leadText}>Здесь видно проблемы рядом. Если вы тоже видели проблему, подтвердите ее.</Text>
+      <Text style={styles.leadText}>Здесь видны проблемы рядом. Если вы были на месте, подтвердите обращение.</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {filters.map((item) => (
           <Pressable key={item} style={[styles.chip, mapFilter === item && styles.chipActive]} onPress={() => setMapFilter(item)}>
@@ -541,7 +541,7 @@ function MapScreen({ reports }: { reports: Report[] }) {
       <View style={styles.listPanel}>
         <InfoRow icon="map-marker-outline" title="Ближайшая заявка" text={(filtered[0] ?? reports[0]).title} />
         <Pressable style={styles.outlineWideButton}>
-          <Text style={styles.outlineButtonText}>Подтвердить проблему</Text>
+          <Text style={styles.outlineButtonText}>Подтвердить обращение</Text>
         </Pressable>
       </View>
     </View>
@@ -551,11 +551,11 @@ function MapScreen({ reports }: { reports: Report[] }) {
 function ProfileScreen({ balance, reports }: { balance: number; reports: Report[] }) {
   return (
     <View style={styles.screen}>
-      <AppHeader title="Профиль" rightText="Демо" />
+      <AppHeader title="Профиль" rightText="Защищено" />
       <View style={styles.profileCard}>
         <Text style={styles.profileInitial}>К</Text>
         <View style={styles.rowCopy}>
-          <Text style={styles.rowTitle}>Участник Байкала</Text>
+          <Text style={styles.rowTitle}>Участник проекта</Text>
           <Text style={styles.rowText}>Контакты не видны публично</Text>
         </View>
       </View>
@@ -567,9 +567,9 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
       </View>
 
       <View style={styles.listPanel}>
-        <InfoRow icon="shield-check-outline" title="Зачем профиль" text="Здесь будут баллы, приватность и доверие пользователя." />
-        <InfoRow icon="bell-outline" title="Что будет дальше" text="После backend появятся пуши о смене статуса." />
-        <InfoRow icon="file-document-outline" title="Правила сервиса" text="Перед релизом добавим документы и политику данных." />
+        <InfoRow icon="shield-check-outline" title="Профиль и доверие" text="Здесь хранятся баллы, настройки приватности и уровень доверия." />
+        <InfoRow icon="bell-outline" title="Уведомления" text="Приложение сообщит, когда у заявки изменится статус." />
+        <InfoRow icon="file-document-outline" title="Правила сервиса" text="Документы и политика обработки данных будут доступны в приложении." />
       </View>
     </View>
   );
@@ -581,7 +581,7 @@ function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Ta
     { id: 'map', icon: 'map-outline', label: 'Карта' },
     { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
     { id: 'messages', icon: 'clipboard-text-outline', label: 'Заявки' },
-    { id: 'profile', icon: 'cog-outline', label: 'Профиль' },
+    { id: 'profile', icon: 'cog-outline', label: 'Еще' },
   ];
 
   return (
@@ -644,8 +644,8 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
 function WorkflowStrip() {
   return (
     <View style={styles.workflowStrip}>
-      <WorkflowStep icon="camera-outline" title="Снимок" text="Покажите проблему" />
-      <WorkflowStep icon="map-marker-outline" title="Точка" text="Укажите место" />
+      <WorkflowStep icon="camera-outline" title="Фото" text="Снимите проблему" />
+      <WorkflowStep icon="map-marker-outline" title="Место" text="Добавьте точку" />
       <WorkflowStep icon="progress-check" title="Статус" text="Следите в заявках" />
     </View>
   );

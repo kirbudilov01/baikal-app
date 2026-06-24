@@ -327,7 +327,7 @@ function HomeScreen({
       <WorkflowStrip />
       <EmergencyNotice />
 
-      <ReferenceRail reports={reports} balance={balance} onReport={onReport} onOpenReports={onOpenReports} />
+      <ReferenceRail reports={reports} balance={balance} onOpenReports={onOpenReports} />
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
@@ -339,12 +339,6 @@ function HomeScreen({
       <View style={styles.listPanel}>
         <InfoRow icon="progress-check" title={newestReport.status} text={newestReport.nextStep} />
         <ReportRow report={newestReport} />
-      </View>
-
-      <SectionHeader title="Что происходит дальше" action="Понятно" />
-      <View style={styles.storyGrid}>
-        <StoryCard image={reportImage} title="Проверка" text="Модератор смотрит фото и место" />
-        <StoryCard image={rewardImage} title="Статус" text="Вы видите следующий шаг" />
       </View>
 
       <SectionHeader title="Что можно сообщить" action="8 типов" />
@@ -385,6 +379,7 @@ function ReportScreen({
   onOpenDuplicate: (id: number) => void;
 }) {
   const [formMessage, setFormMessage] = useState('');
+  const [ignoreDuplicateId, setIgnoreDuplicateId] = useState<number | null>(null);
   const categoryMeta = categories.find((item) => item.label === selectedCategory) ?? categories[0];
   const isPhotoReady = Boolean(pickedImage);
   const isDescriptionReady = description.trim().length >= 10;
@@ -392,7 +387,9 @@ function ReportScreen({
   const readiness = (isPhotoReady ? 1 : 0) + 1 + (isDescriptionReady ? 1 : 0) + (isLocationReady ? 1 : 0);
   const canSubmit = readiness === 4;
   const evidenceScore = Math.min(96, 42 + (isPhotoReady ? 26 : 0) + (description.trim().length >= 35 ? 14 : isDescriptionReady ? 8 : 0) + (isLocationReady ? 14 : 0));
-  const similarReport = reports.find((report) => report.category === selectedCategory && report.status !== 'Решено' && report.status !== 'Отклонено');
+  const similarReport = reports.find(
+    (report) => report.category === selectedCategory && report.status !== 'Решено' && report.status !== 'Отклонено' && report.id !== ignoreDuplicateId,
+  );
   const nextMissing = !isPhotoReady
     ? 'Добавьте фото проблемы'
     : !isDescriptionReady
@@ -487,7 +484,13 @@ function ReportScreen({
         </View>
       </StepBlock>
 
-      {similarReport ? <SimilarReportCard report={similarReport} onOpen={() => onOpenDuplicate(similarReport.id)} /> : null}
+      {similarReport ? (
+        <SimilarReportCard
+          report={similarReport}
+          onOpen={() => onOpenDuplicate(similarReport.id)}
+          onDismiss={() => setIgnoreDuplicateId(similarReport.id)}
+        />
+      ) : null}
 
       <StepBlock number="3" title="Описание места" done={isDescriptionReady}>
         <TextInput
@@ -745,18 +748,16 @@ function MiniBadge({ icon, text }: { icon: keyof typeof MaterialCommunityIcons.g
 function ReferenceRail({
   reports,
   balance,
-  onReport,
   onOpenReports,
 }: {
   reports: Report[];
   balance: number;
-  onReport: () => void;
   onOpenReports: () => void;
 }) {
   const leadReport = reports[0];
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.referenceRail}>
+    <View style={styles.referenceRail}>
       <ReferenceCard
         image={leadReport.image}
         kicker={leadReport.status}
@@ -773,15 +774,7 @@ function ReferenceRail({
         icon="leaf-circle-outline"
         onPress={onOpenReports}
       />
-      <ReferenceCard
-        image={heroImage}
-        kicker="1 минута"
-        title="Новая заявка"
-        text="Фото, место и описание"
-        icon="camera-plus-outline"
-        onPress={onReport}
-      />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -832,7 +825,7 @@ function EvidenceMeter({ score }: { score: number }) {
   );
 }
 
-function SimilarReportCard({ report, onOpen }: { report: Report; onOpen: () => void }) {
+function SimilarReportCard({ report, onOpen, onDismiss }: { report: Report; onOpen: () => void; onDismiss: () => void }) {
   return (
     <View style={styles.similarCard}>
       <View style={styles.similarIcon}>
@@ -840,23 +833,15 @@ function SimilarReportCard({ report, onOpen }: { report: Report; onOpen: () => v
       </View>
       <View style={styles.rowCopy}>
         <Text style={styles.similarTitle}>Похоже, такая заявка уже есть</Text>
-        <Text style={styles.similarText}>{report.title} · {report.location}</Text>
-        <Pressable style={styles.similarButton} onPress={onOpen}>
-          <Text style={styles.similarButtonText}>Открыть и подтвердить</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-function StoryCard({ image, title, text }: { image: ImageSourcePropType; title: string; text: string }) {
-  return (
-    <View style={styles.storyCard}>
-      <Image source={image} style={styles.storyImage} />
-      <LinearGradient colors={['transparent', 'rgba(0,58,66,0.78)']} style={styles.storyOverlay} />
-      <View style={styles.storyCopy}>
-        <Text style={styles.storyTitle}>{title}</Text>
-        <Text style={styles.storyText}>{text}</Text>
+        <Text style={styles.similarText}>{report.title} · {report.location}. Лучше подтвердить ее, если это то же место.</Text>
+        <View style={styles.similarActions}>
+          <Pressable style={styles.similarButton} onPress={onOpen}>
+            <Text style={styles.similarButtonText}>Открыть</Text>
+          </Pressable>
+          <Pressable style={styles.similarGhostButton} onPress={onDismiss}>
+            <Text style={styles.similarGhostText}>Продолжить новую</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -1239,12 +1224,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   referenceRail: {
+    flexDirection: 'row',
     gap: 10,
-    paddingBottom: 12,
+    marginBottom: 14,
   },
   referenceCard: {
-    width: 188,
-    height: 214,
+    flex: 1,
+    minHeight: 164,
     borderRadius: 22,
     backgroundColor: '#0A3D44',
     overflow: 'hidden',
@@ -1298,8 +1284,8 @@ const styles = StyleSheet.create({
   },
   referenceTitle: {
     color: '#ffffff',
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 17,
+    lineHeight: 21,
     fontWeight: '800',
   },
   referenceText: {
@@ -1413,53 +1399,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: '#f5f6f7',
     padding: 6,
-  },
-  storyGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  storyCard: {
-    flex: 1,
-    minHeight: 132,
-    borderRadius: 18,
-    backgroundColor: '#0A3D44',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  storyImage: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-  },
-  storyOverlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-  },
-  storyCopy: {
-    flex: 1,
-    padding: 12,
-    justifyContent: 'flex-end',
-  },
-  storyTitle: {
-    color: '#ffffff',
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '800',
-  },
-  storyText: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 3,
-    fontWeight: '700',
   },
   infoRow: {
     minHeight: 60,
@@ -1735,6 +1674,12 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 2,
   },
+  similarActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 9,
+  },
   similarButton: {
     alignSelf: 'flex-start',
     minHeight: 34,
@@ -1742,10 +1687,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     paddingHorizontal: 12,
     justifyContent: 'center',
-    marginTop: 9,
   },
   similarButtonText: {
     color: '#141414',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  similarGhostButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  similarGhostText: {
+    color: '#00736F',
     fontSize: 12,
     fontWeight: '800',
   },

@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
@@ -266,32 +267,47 @@ function HomeScreen({
   const activeReports = reports.filter((report) => report.status !== 'Решено').length;
   const solvedReports = reports.filter((report) => report.status === 'Решено').length;
   const newestReport = reports[0];
+  const verifiedReports = reports.filter((report) => report.status === 'В работе' || report.status === 'Решено').length;
 
   return (
     <View style={styles.screen}>
       <AppHeader title="Байкал" rightText={`${balance} баллов`} />
 
       <View style={styles.heroBlock}>
-        <Text style={styles.heroTitle}>Сообщите о проблеме на Байкале</Text>
-        <Text style={styles.heroText}>Добавьте фото, описание и геоточку. Мы покажем, что происходит с заявкой.</Text>
-        <Pressable style={styles.primaryButton} onPress={onReport}>
-          <MaterialCommunityIcons name="plus" size={20} color="#ffffff" />
-          <Text style={styles.primaryButtonText}>Сообщить о проблеме</Text>
-        </Pressable>
+        <Image source={heroImage} style={styles.heroImage} />
+        <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,58,66,0.82)']} style={styles.heroOverlay} />
+        <View style={styles.heroContent}>
+          <View style={styles.heroPill}>
+            <MaterialCommunityIcons name="shield-check-outline" size={15} color="#ffffff" />
+            <Text style={styles.heroPillText}>Контакты не показываются публично</Text>
+          </View>
+          <Text style={styles.heroTitle}>Сообщите о проблеме на Байкале</Text>
+          <Text style={styles.heroText}>Фото, место и короткое описание помогут быстрее проверить обращение.</Text>
+          <Pressable style={styles.heroButton} onPress={onReport}>
+            <Text style={styles.heroButtonText}>Сообщить о проблеме</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color="#141414" />
+          </Pressable>
+        </View>
       </View>
 
       <WorkflowStrip />
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
+        <SummaryCell label="Проверено" value={`${verifiedReports}`} />
         <SummaryCell label="Решено" value={`${solvedReports}`} />
-        <SummaryCell label="Баллы" value={`${balance}`} />
       </View>
 
       <SectionHeader title="Последний статус" action="Все заявки" onAction={onOpenReports} />
       <View style={styles.listPanel}>
         <InfoRow icon="progress-check" title={newestReport.status} text={newestReport.nextStep} />
         <ReportRow report={newestReport} />
+      </View>
+
+      <SectionHeader title="Что происходит дальше" action="Понятно" />
+      <View style={styles.storyGrid}>
+        <StoryCard image={reportImage} title="Проверка" text="Модератор смотрит фото и место" />
+        <StoryCard image={rewardImage} title="Статус" text="Вы видите следующий шаг" />
       </View>
 
       <SectionHeader title="Что можно сообщить" action="8 типов" />
@@ -384,11 +400,17 @@ function ReportScreen({
         <Text style={styles.taskHintLabel}>Следующий шаг</Text>
         <Text style={styles.taskHintTitle}>{nextMissing}</Text>
         <Text style={styles.taskHintText}>Фото, описание и геоточка помогают проверить обращение без дополнительных вопросов.</Text>
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${(readiness / 4) * 100}%` }]} />
+        </View>
       </View>
 
       <StepBlock number="1" title="Фото" done={isPhotoReady}>
         <View style={styles.photoBox}>
           <Image source={pickedImage ? { uri: pickedImage } : reportImage} style={styles.photoPreview} />
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.58)']} style={styles.photoOverlay}>
+            <Text style={styles.photoOverlayText}>{isPhotoReady ? 'Фото добавлено' : 'Лучше снять общий план и крупную деталь'}</Text>
+          </LinearGradient>
           <View style={styles.inlineActions}>
             <Pressable style={styles.outlineButton} onPress={takePhoto}>
               <MaterialCommunityIcons name="camera-outline" size={18} color="#141414" />
@@ -425,6 +447,7 @@ function ReportScreen({
           placeholderTextColor="#8b8b8b"
           style={styles.textArea}
         />
+        <Text style={styles.fieldHint}>Например: что видно рядом, есть ли техника, мусор, следы работ или запах.</Text>
       </StepBlock>
 
       <StepBlock number="4" title="Точка на карте" done={isLocationReady}>
@@ -641,6 +664,19 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
   );
 }
 
+function StoryCard({ image, title, text }: { image: ImageSourcePropType; title: string; text: string }) {
+  return (
+    <View style={styles.storyCard}>
+      <Image source={image} style={styles.storyImage} />
+      <LinearGradient colors={['transparent', 'rgba(0,58,66,0.78)']} style={styles.storyOverlay} />
+      <View style={styles.storyCopy}>
+        <Text style={styles.storyTitle}>{title}</Text>
+        <Text style={styles.storyText}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
 function WorkflowStrip() {
   return (
     <View style={styles.workflowStrip}>
@@ -807,24 +843,79 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   heroBlock: {
-    borderRadius: 22,
-    backgroundColor: '#f5f6f7',
+    minHeight: 292,
+    borderRadius: 24,
+    backgroundColor: '#0A3D44',
+    marginBottom: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  heroOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  heroContent: {
+    flex: 1,
+    minHeight: 292,
     padding: 16,
+    justifyContent: 'flex-end',
+  },
+  heroPill: {
+    alignSelf: 'flex-start',
+    minHeight: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginBottom: 12,
   },
+  heroPillText: {
+    color: '#ffffff',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
   heroTitle: {
-    color: '#141414',
-    fontSize: 24,
-    lineHeight: 29,
+    color: '#ffffff',
+    fontSize: 27,
+    lineHeight: 32,
     fontWeight: '800',
     letterSpacing: 0,
   },
   heroText: {
-    color: '#5f6368',
+    color: 'rgba(255,255,255,0.86)',
     fontSize: 14,
     lineHeight: 20,
     marginTop: 8,
     marginBottom: 14,
+  },
+  heroButton: {
+    minHeight: 50,
+    borderRadius: 17,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+  },
+  heroButtonText: {
+    color: '#141414',
+    fontSize: 15,
+    fontWeight: '800',
   },
   primaryButton: {
     minHeight: 50,
@@ -966,6 +1057,53 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f6f7',
     padding: 6,
   },
+  storyGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  storyCard: {
+    flex: 1,
+    minHeight: 132,
+    borderRadius: 18,
+    backgroundColor: '#0A3D44',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  storyImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  storyOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  storyCopy: {
+    flex: 1,
+    padding: 12,
+    justifyContent: 'flex-end',
+  },
+  storyTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  storyText: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3,
+    fontWeight: '700',
+  },
   infoRow: {
     minHeight: 60,
     borderRadius: 15,
@@ -1032,6 +1170,18 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 6,
   },
+  progressTrack: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#e1e5e8',
+    overflow: 'hidden',
+    marginTop: 12,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: '#008F9A',
+  },
   stepBlock: {
     borderRadius: 18,
     backgroundColor: '#f5f6f7',
@@ -1072,11 +1222,28 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#ffffff',
     overflow: 'hidden',
+    position: 'relative',
   },
   photoPreview: {
     width: '100%',
     height: 136,
     backgroundColor: '#e8eaed',
+  },
+  photoOverlay: {
+    position: 'absolute',
+    top: 72,
+    left: 0,
+    right: 0,
+    height: 64,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+  },
+  photoOverlayText: {
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
   },
   inlineActions: {
     flexDirection: 'row',
@@ -1124,6 +1291,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     padding: 12,
     textAlignVertical: 'top',
+  },
+  fieldHint: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
   },
   locationRow: {
     minHeight: 58,

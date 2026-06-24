@@ -327,6 +327,8 @@ function HomeScreen({
       <WorkflowStrip />
       <EmergencyNotice />
 
+      <ReferenceRail reports={reports} balance={balance} onReport={onReport} onOpenReports={onOpenReports} />
+
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
         <SummaryCell label="Проверено" value={`${verifiedReports}`} />
@@ -609,6 +611,8 @@ function MapScreen({ reports }: { reports: Report[] }) {
       </ScrollView>
 
       <View style={styles.mapMock}>
+        <Image source={heroImage} style={styles.mapImage} resizeMode="cover" />
+        <LinearGradient colors={['rgba(255,255,255,0.22)', 'rgba(238,243,247,0.88)']} style={styles.mapImageOverlay} />
         <Text style={styles.mapTitle}>Иркутская область</Text>
         <View style={styles.mapLegend}>
           <LegendItem color="#008F9A" label="проверено" />
@@ -735,6 +739,80 @@ function MiniBadge({ icon, text }: { icon: keyof typeof MaterialCommunityIcons.g
       <MaterialCommunityIcons name={icon} size={14} color="#00736F" />
       <Text style={styles.miniBadgeText}>{text}</Text>
     </View>
+  );
+}
+
+function ReferenceRail({
+  reports,
+  balance,
+  onReport,
+  onOpenReports,
+}: {
+  reports: Report[];
+  balance: number;
+  onReport: () => void;
+  onOpenReports: () => void;
+}) {
+  const leadReport = reports[0];
+
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.referenceRail}>
+      <ReferenceCard
+        image={leadReport.image}
+        kicker={leadReport.status}
+        title={leadReport.title}
+        text={leadReport.nextActionLabel}
+        icon="clipboard-text-search-outline"
+        onPress={onOpenReports}
+      />
+      <ReferenceCard
+        image={rewardImage}
+        kicker={`${balance} баллов`}
+        title="Полезные действия"
+        text="Баллы после подтверждения"
+        icon="leaf-circle-outline"
+        onPress={onOpenReports}
+      />
+      <ReferenceCard
+        image={heroImage}
+        kicker="1 минута"
+        title="Новая заявка"
+        text="Фото, место и описание"
+        icon="camera-plus-outline"
+        onPress={onReport}
+      />
+    </ScrollView>
+  );
+}
+
+function ReferenceCard({
+  image,
+  kicker,
+  title,
+  text,
+  icon,
+  onPress,
+}: {
+  image: ImageSourcePropType;
+  kicker: string;
+  title: string;
+  text: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={styles.referenceCard} onPress={onPress}>
+      <Image source={image} style={styles.referenceImage} resizeMode="cover" />
+      <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,58,66,0.78)']} style={styles.referenceOverlay} />
+      <View style={styles.referenceIcon}>
+        <MaterialCommunityIcons name={icon} size={18} color="#ffffff" />
+      </View>
+      <View style={styles.referenceCopy}>
+        <Text style={styles.referenceKicker}>{kicker}</Text>
+        <Text style={styles.referenceTitle}>{title}</Text>
+        <Text style={styles.referenceText}>{text}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -879,9 +957,15 @@ function ReportRow({ report, selected }: { report: Report; selected?: boolean })
 function ReportDetail({ report }: { report: Report }) {
   return (
     <View style={styles.detailPanel}>
-      <Text style={styles.detailLabel}>{report.publicId}</Text>
-      <Text style={styles.detailTitle}>{report.title}</Text>
-      <Text style={styles.detailText}>{report.nextStep}</Text>
+      <View style={styles.detailHero}>
+        <Image source={report.image} style={styles.detailHeroImage} resizeMode="cover" />
+        <LinearGradient colors={['rgba(0,0,0,0.02)', 'rgba(0,58,66,0.78)']} style={styles.detailHeroOverlay} />
+        <View style={styles.detailHeroCopy}>
+          <Text style={styles.detailHeroKicker}>{report.publicId} · {report.status}</Text>
+          <Text style={styles.detailHeroTitle}>{report.title}</Text>
+          <Text style={styles.detailHeroText}>{report.nextStep}</Text>
+        </View>
+      </View>
       <View style={styles.detailMetaGrid}>
         <DetailStat label="Ответственный" value={report.authorityLabel} />
         <DetailStat label="Следующий шаг" value={report.nextActionLabel} />
@@ -1153,6 +1237,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '800',
+  },
+  referenceRail: {
+    gap: 10,
+    paddingBottom: 12,
+  },
+  referenceCard: {
+    width: 188,
+    height: 214,
+    borderRadius: 22,
+    backgroundColor: '#0A3D44',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  referenceImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  referenceOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  referenceIcon: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  referenceCopy: {
+    flex: 1,
+    padding: 14,
+    justifyContent: 'flex-end',
+  },
+  referenceKicker: {
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    color: '#ffffff',
+    paddingHorizontal: 9,
+    paddingTop: 5,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    overflow: 'hidden',
+    marginBottom: 9,
+  },
+  referenceTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '800',
+  },
+  referenceText: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 4,
+    fontWeight: '700',
   },
   outlineButton: {
     flex: 1,
@@ -1720,30 +1875,59 @@ const styles = StyleSheet.create({
   detailPanel: {
     borderRadius: 18,
     backgroundColor: '#f5f6f7',
-    padding: 16,
+    padding: 8,
   },
-  detailLabel: {
-    color: '#8b8b8b',
-    fontSize: 12,
+  detailHero: {
+    minHeight: 196,
+    borderRadius: 17,
+    backgroundColor: '#0A3D44',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  detailHeroImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  detailHeroOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  detailHeroCopy: {
+    flex: 1,
+    padding: 14,
+    justifyContent: 'flex-end',
+  },
+  detailHeroKicker: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  detailHeroTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '800',
   },
-  detailTitle: {
-    color: '#141414',
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  detailText: {
-    color: '#5f6368',
-    fontSize: 14,
-    lineHeight: 20,
+  detailHeroText: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 13,
+    lineHeight: 18,
     marginTop: 6,
   },
   detailMetaGrid: {
     flexDirection: 'row',
     gap: 7,
-    marginTop: 14,
+    marginTop: 8,
   },
   detailStat: {
     flex: 1,
@@ -1768,6 +1952,7 @@ const styles = StyleSheet.create({
   },
   timeline: {
     marginTop: 14,
+    paddingHorizontal: 8,
     gap: 10,
   },
   timelineStep: {
@@ -1796,6 +1981,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 15,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   detailActionButton: {
     flex: 1,
@@ -1819,6 +2006,23 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 14,
     padding: 18,
+    position: 'relative',
+  },
+  mapImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  mapImageOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   mapTitle: {
     color: '#141414',

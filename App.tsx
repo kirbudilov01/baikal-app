@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   ImageSourcePropType,
+  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -101,7 +102,10 @@ const heroImage = require('./assets/baikal/hero-clean.png');
 const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
-const API_BASE_URL = 'http://localhost:4000';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
+const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 
 const mapPoints: MapPoint[] = [
@@ -458,7 +462,7 @@ export default function App() {
           )}
           {activeTab === 'messages' && <MessagesScreen reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} />}
           {activeTab === 'profile' && <ProfileScreen balance={balance} reports={reports} />}
-          {activeTab === 'admin' && (
+          {ADMIN_ENABLED && activeTab === 'admin' && (
             <AdminScreen
               reports={reports}
               syncMessage={syncMessage}
@@ -886,6 +890,11 @@ function MapScreen({ reports }: { reports: Report[] }) {
 }
 
 function ProfileScreen({ balance, reports }: { balance: number; reports: Report[] }) {
+  const openUrl = (url: string) => {
+    if (!url) return;
+    Linking.openURL(url).catch(() => undefined);
+  };
+
   return (
     <View style={styles.screen}>
       <AppHeader title="Бонусы" rightText={`${balance} листиков`} />
@@ -908,7 +917,20 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
       <View style={styles.listPanel}>
         <InfoRow icon="shield-check-outline" title="Профиль и доверие" text="Здесь хранятся бонусы, настройки приватности и уровень доверия." />
         <InfoRow icon="bell-outline" title="Уведомления" text="Приложение сообщит, когда у заявки изменится статус." />
-        <InfoRow icon="file-document-outline" title="Правила сервиса" text="Документы и политика обработки данных будут доступны в приложении." />
+        <Pressable onPress={() => openUrl(PRIVACY_URL)} disabled={!PRIVACY_URL}>
+          <InfoRow
+            icon="file-document-outline"
+            title="Политика приватности"
+            text={PRIVACY_URL ? 'Откроется в браузере.' : 'Добавим публичную ссылку перед релизом.'}
+          />
+        </Pressable>
+        <Pressable onPress={() => openUrl(SUPPORT_URL)} disabled={!SUPPORT_URL}>
+          <InfoRow
+            icon="lifebuoy"
+            title="Поддержка"
+            text={SUPPORT_URL ? 'Связь по вопросам заявок и данных.' : 'Нужна публичная страница поддержки.'}
+          />
+        </Pressable>
       </View>
       <View style={styles.trustPanel}>
         <Text style={styles.trustTitle}>Как растет доверие</Text>
@@ -1022,7 +1044,7 @@ function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Ta
     { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
     { id: 'messages', icon: 'clipboard-text-outline', label: 'Заявки' },
     { id: 'profile', icon: 'gift-outline', label: 'Бонусы' },
-    { id: 'admin', icon: 'shield-crown-outline', label: 'Админ' },
+    ...(ADMIN_ENABLED ? [{ id: 'admin' as Tab, icon: 'shield-crown-outline' as keyof typeof MaterialCommunityIcons.glyphMap, label: 'Админ' }] : []),
   ];
 
   return (

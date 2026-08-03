@@ -1,15 +1,15 @@
 const appJson = require('./app.json');
 
-module.exports = () => {
-  const config = { ...appJson.expo };
+module.exports = ({ config }) => {
+  const expoConfig = { ...config, ...appJson.expo };
   const baseUrl = process.env.EXPO_PUBLIC_BASE_URL;
 
   if (baseUrl) {
-    config.experiments = {
-      ...(config.experiments ?? {}),
+    expoConfig.experiments = {
+      ...(expoConfig.experiments ?? {}),
       baseUrl,
     };
   }
 
-  return config;
+  return expoConfig;
 };

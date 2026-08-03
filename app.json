@@ -7,11 +7,9 @@
     "scheme": "baikal",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#EEF7F8"
-    },
+    "plugins": [
+      "expo-font"
+    ],
     "ios": {
       "bundleIdentifier": "ru.newpeople.baikal",
       "supportsTablet": true,

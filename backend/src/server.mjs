@@ -50,6 +50,42 @@ function adminReport(report, events) {
   };
 }
 
+function reportSummary(reports) {
+  const byStatus = Object.fromEntries(Object.keys(reportStatuses).map((status) => [status, 0]));
+  const byCategory = {};
+
+  for (const report of reports) {
+    byStatus[report.status] = (byStatus[report.status] ?? 0) + 1;
+    byCategory[report.category] = (byCategory[report.category] ?? 0) + 1;
+  }
+
+  return {
+    total: reports.length,
+    active: reports.filter((report) => !reportStatuses[report.status].terminal).length,
+    resolved: reports.filter((report) => report.status === 'resolved').length,
+    byStatus,
+    byCategory,
+  };
+}
+
+function allowedNextStatuses(status) {
+  return Object.keys(reportStatuses).filter((nextStatus) => {
+    try {
+      assertCanTransition(status, nextStatus);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function adminReportWithActions(report, events) {
+  return {
+    ...adminReport(report, events),
+    allowedNextStatuses: allowedNextStatuses(report.status),
+  };
+}
+
 function createReportId(existingReports) {
   const numericIds = existingReports
     .map((report) => Number(String(report.id).replace('BR-', '')))
@@ -67,6 +103,17 @@ function validateReportPayload(payload) {
 
   if (String(payload.description).trim().length < 10) {
     throw createDomainError(400, 'Description must be at least 10 characters');
+  }
+
+  const latitude = Number(payload.latitude);
+  const longitude = Number(payload.longitude);
+
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    throw createDomainError(400, 'Latitude must be a valid coordinate');
+  }
+
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    throw createDomainError(400, 'Longitude must be a valid coordinate');
   }
 }
 
@@ -189,13 +236,16 @@ async function route(request, response) {
     const db = await readDb();
     const report = db.reports.find((item) => item.id === adminReportMatch[1]);
     if (!report) throw createDomainError(404, 'Report not found');
-    sendJson(response, 200, { report: adminReport(report, db.events) });
+    sendJson(response, 200, { report: adminReportWithActions(report, db.events) });
     return;
   }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/reports') {
     const db = await readDb();
-    sendJson(response, 200, { reports: db.reports.map((report) => adminReport(report, db.events)) });
+    sendJson(response, 200, {
+      summary: reportSummary(db.reports),
+      reports: db.reports.map((report) => adminReportWithActions(report, db.events)),
+    });
     return;
   }
 
@@ -214,4 +264,3 @@ const server = createServer(async (request, response) => {
 server.listen(port, () => {
   console.log(`Baikal backend listening on http://localhost:${port}`);
 });
-

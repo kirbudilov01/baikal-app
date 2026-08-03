@@ -18,8 +18,9 @@ import {
   ViewStyle,
 } from 'react-native';
 
-type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile';
+type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile' | 'admin';
 type ReportStatus = 'На модерации' | 'Требует уточнения' | 'Передано' | 'В работе' | 'Решено' | 'Отклонено';
+type ReportStatusCode = 'moderation' | 'transferred' | 'in_progress' | 'resolved' | 'rejected';
 type ReportFilter = 'Все' | 'Активные' | 'Решенные';
 
 type LocationPoint = {
@@ -49,6 +50,7 @@ type Report = {
   category: string;
   location: string;
   status: ReportStatus;
+  statusCode: ReportStatusCode;
   nextStep: string;
   authorityLabel: string;
   nextActionLabel: string;
@@ -62,11 +64,35 @@ type Report = {
   timeline: Array<{ label: string; done: boolean }>;
 };
 
+type ApiReport = {
+  id: string;
+  title: string;
+  category: string;
+  description?: string;
+  locationText: string;
+  latitude: number;
+  longitude: number;
+  status: {
+    code: ReportStatusCode;
+    label: ReportStatus;
+    hint: string;
+    terminal: boolean;
+  };
+  nextStep: string;
+  points: number;
+  confirmations: number;
+  photoUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  adminAction?: string;
+};
+
 type Reward = {
   title: string;
   partner: string;
   cost: number;
   benefit: string;
+  note: string;
   image: ImageSourcePropType;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 };
@@ -75,6 +101,7 @@ const heroImage = require('./assets/baikal/hero-clean.png');
 const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
+const API_BASE_URL = 'http://localhost:4000';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 
 const mapPoints: MapPoint[] = [
@@ -95,9 +122,9 @@ const categories: Category[] = [
 ];
 
 const rewards: Reward[] = [
-  { title: 'Чай у озера', partner: 'Кафе «У Озера»', cost: 350, benefit: 'напиток в подарок', image: rewardImage, icon: 'coffee-outline' },
-  { title: 'Прокат велосипеда', partner: 'Листвянка Bike', cost: 800, benefit: '-20% на прогулку', image: heroImage, icon: 'bike' },
-  { title: 'Эко-отель', partner: 'Байкал Дом', cost: 1200, benefit: '-10% на ночь', image: rewardImage, icon: 'home-heart' },
+  { title: 'Чай у озера', partner: 'Кафе «У Озера»', cost: 350, benefit: 'напиток в подарок', note: 'забрать сегодня', image: rewardImage, icon: 'coffee-outline' },
+  { title: 'Прокат велосипеда', partner: 'Листвянка Bike', cost: 800, benefit: '-20% на прогулку', note: '2 часа по берегу', image: heroImage, icon: 'bike' },
+  { title: 'Эко-отель', partner: 'Байкал Дом', cost: 1200, benefit: '-10% на ночь', note: 'для выходных', image: rewardImage, icon: 'home-heart' },
 ];
 
 const initialReports: Report[] = [
@@ -108,6 +135,7 @@ const initialReports: Report[] = [
     category: 'Вырубка',
     location: 'Большое Голоустное',
     status: 'В работе',
+    statusCode: 'in_progress',
     nextStep: 'Ответственные службы проверяют участок',
     authorityLabel: 'Лесной надзор',
     nextActionLabel: 'Ожидаем акт проверки',
@@ -133,6 +161,7 @@ const initialReports: Report[] = [
     category: 'Мусор',
     location: 'Листвянка',
     status: 'Передано',
+    statusCode: 'transferred',
     nextStep: 'Заявка направлена координатору района',
     authorityLabel: 'Координатор района',
     nextActionLabel: 'Назначить исполнителя',
@@ -157,6 +186,7 @@ const initialReports: Report[] = [
     category: 'Природа',
     location: 'Ольхон',
     status: 'Решено',
+    statusCode: 'resolved',
     nextStep: 'Листики начислены, заявка закрыта',
     authorityLabel: 'Команда проекта',
     nextActionLabel: 'Оцените результат',
@@ -177,6 +207,68 @@ const initialReports: Report[] = [
   },
 ];
 
+const statusTimeline: Record<ReportStatusCode, string[]> = {
+  moderation: ['Сообщение получено'],
+  transferred: ['Сообщение получено', 'Фото и место проверены', 'Передано ответственным'],
+  in_progress: ['Сообщение получено', 'Фото и место проверены', 'Передано ответственным', 'Проверка на месте'],
+  resolved: ['Сообщение получено', 'Фото и место проверены', 'Передано ответственным', 'Проблема устранена', 'Листики начислены'],
+  rejected: ['Сообщение получено', 'Проверка завершена'],
+};
+
+const fullTimeline = ['Сообщение получено', 'Фото и место проверены', 'Передано ответственным', 'Проверка на месте', 'Результат и листики'];
+
+function reportNumericId(publicId: string) {
+  const numeric = Number(publicId.replace(/\D/g, ''));
+  return Number.isFinite(numeric) ? numeric : Date.now();
+}
+
+function formatReportDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU').format(new Date(value));
+}
+
+function reportFromApi(report: ApiReport): Report {
+  const doneLabels = statusTimeline[report.status.code] ?? statusTimeline.moderation;
+  const category = categories.find((item) => item.label === report.category);
+
+  return {
+    id: reportNumericId(report.id),
+    publicId: report.id,
+    title: report.title,
+    category: report.category,
+    location: report.locationText,
+    status: report.status.label,
+    statusCode: report.status.code,
+    nextStep: report.nextStep || report.status.hint,
+    authorityLabel: report.adminAction ? 'Админка проекта' : 'Модерация проекта',
+    nextActionLabel: report.adminAction || report.status.hint,
+    date: formatReportDate(report.createdAt),
+    points: report.points,
+    confirmations: report.confirmations,
+    evidenceScore: Math.min(98, 62 + report.confirmations * 6 + (report.photoUrl ? 16 : 0)),
+    canConfirm: !report.status.terminal,
+    canDisputeResolution: report.status.code === 'resolved',
+    image: report.photoUrl ? { uri: report.photoUrl } : category?.label === 'Мусор' ? heroImage : reportImage,
+    timeline: fullTimeline.map((label) => ({ label, done: doneLabels.includes(label) })),
+  };
+}
+
+async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'content-type': 'application/json',
+      ...(options?.headers ?? {}),
+    },
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || 'API request failed');
+  }
+
+  return payload as T;
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [selectedCategory, setSelectedCategory] = useState(categories[0].label);
@@ -188,6 +280,8 @@ export default function App() {
   const [pickedLocationLabel, setPickedLocationLabel] = useState('');
   const [selectedReportId, setSelectedReportId] = useState(initialReports[0].id);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('Локальный режим: backend пока не подключен');
+  const [isSyncing, setIsSyncing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const balance = useMemo(
@@ -239,6 +333,25 @@ export default function App() {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [activeTab]);
 
+  const loadReportsFromApi = async () => {
+    setIsSyncing(true);
+    try {
+      const payload = await requestJson<{ reports: ApiReport[] }>('/api/reports');
+      const apiReports = payload.reports.map(reportFromApi);
+      setReports(apiReports.length > 0 ? apiReports : initialReports);
+      if (apiReports[0]) setSelectedReportId(apiReports[0].id);
+      setSyncMessage(apiReports.length > 0 ? 'Backend подключен: заявки синхронизированы' : 'Backend подключен: заявок пока нет');
+    } catch {
+      setSyncMessage('Локальный режим: запустите backend для синхронизации');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReportsFromApi();
+  }, []);
+
   const clearDraft = () => {
     setSelectedCategory(categories[0].label);
     setDescription('');
@@ -248,16 +361,18 @@ export default function App() {
     AsyncStorage.removeItem(DRAFT_STORAGE_KEY).catch(() => undefined);
   };
 
-  const submitReport = () => {
+  const buildLocalReport = (publicId?: string): Report => {
     const category = categories.find((item) => item.label === selectedCategory) ?? categories[0];
     const evidenceScore = Math.min(96, 42 + (pickedImage ? 26 : 0) + (description.trim().length >= 35 ? 14 : 8) + (pickedLocation ? 14 : 0));
-    const nextReport: Report = {
-      id: Date.now(),
-      publicId: `BR-${Math.floor(1200 + Math.random() * 7800)}`,
+
+    return {
+      id: publicId ? reportNumericId(publicId) : Date.now(),
+      publicId: publicId ?? `BR-${Math.floor(1200 + Math.random() * 7800)}`,
       title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Обращение: ${category.label}`,
       category: category.label,
       location: pickedLocation ? pickedLocationLabel || 'Выбранная точка' : 'Иркутская область',
       status: 'На модерации',
+      statusCode: 'moderation',
       nextStep: 'Модератор проверит фото, описание и место',
       authorityLabel: 'Модерация проекта',
       nextActionLabel: 'Проверка доказательств',
@@ -276,6 +391,30 @@ export default function App() {
         { label: 'Результат и листики', done: false },
       ],
     };
+  };
+
+  const submitReport = async () => {
+    const localReport = buildLocalReport();
+    let nextReport = localReport;
+
+    try {
+      const payload = await requestJson<{ report: ApiReport }>('/api/reports', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: localReport.title,
+          category: localReport.category,
+          description,
+          locationText: localReport.location,
+          latitude: pickedLocation?.latitude ?? 52.28697,
+          longitude: pickedLocation?.longitude ?? 104.30502,
+          photoUrl: pickedImage,
+        }),
+      });
+      nextReport = reportFromApi(payload.report);
+      setSyncMessage('Заявка отправлена в backend');
+    } catch {
+      setSyncMessage('Backend недоступен: заявка сохранена локально');
+    }
 
     setReports([nextReport, ...reports]);
     setSubmittedReport(nextReport);
@@ -319,6 +458,29 @@ export default function App() {
           )}
           {activeTab === 'messages' && <MessagesScreen reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} />}
           {activeTab === 'profile' && <ProfileScreen balance={balance} reports={reports} />}
+          {activeTab === 'admin' && (
+            <AdminScreen
+              reports={reports}
+              syncMessage={syncMessage}
+              isSyncing={isSyncing}
+              onRefresh={loadReportsFromApi}
+              onStatusChange={async (report, statusCode) => {
+                try {
+                  const payload = await requestJson<{ report: ApiReport }>(`/api/admin/reports/${report.publicId}/status`, {
+                    method: 'POST',
+                    headers: { 'x-admin-id': 'admin:mobile-web' },
+                    body: JSON.stringify({ status: statusCode }),
+                  });
+                  const updated = reportFromApi(payload.report);
+                  setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
+                  setSelectedReportId(updated.id);
+                  setSyncMessage(`Статус ${updated.publicId}: ${updated.status}`);
+                } catch (error) {
+                  setSyncMessage(error instanceof Error ? error.message : 'Не удалось сменить статус');
+                }
+              }}
+            />
+          )}
         </ScrollView>
         <BottomNav activeTab={activeTab} onChange={setActiveTab} />
       </View>
@@ -642,48 +804,82 @@ function MessagesScreen({
 function MapScreen({ reports }: { reports: Report[] }) {
   const [mapFilter, setMapFilter] = useState('Все');
   const [confirmedReportId, setConfirmedReportId] = useState<number | null>(null);
+  const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
   const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
-  const nearestReport = filtered[0] ?? reports[0];
+  const visiblePoints = mapPoints.filter((point) => filtered.some((report) => report.location === point.label));
+  const safePoints = visiblePoints.length > 0 ? visiblePoints : mapPoints;
+  const selectedPoint = safePoints.find((point) => point.label === selectedPointLabel) ?? safePoints[0];
+  const nearestReport = filtered.find((report) => report.location === selectedPoint.label) ?? filtered[0] ?? reports[0];
   const isConfirmed = confirmedReportId === nearestReport.id;
+  const palette = getStatusPalette(nearestReport.status);
+
+  const handleFilter = (item: string) => {
+    const nextFiltered = reports.filter((report) => item === 'Все' || report.category === item);
+    const nextReport = nextFiltered[0] ?? reports[0];
+    setMapFilter(item);
+    setSelectedPointLabel(nextReport.location);
+  };
 
   return (
     <View style={styles.screen}>
       <AppHeader title="Карта" rightText={`${filtered.length}`} />
-      <Text style={styles.leadText}>Здесь видны проблемы рядом. Если вы были на месте, подтвердите обращение.</Text>
+      <Text style={styles.leadText}>Нажмите точку на карте. Если были рядом и видели проблему, подтвердите заявку.</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {filters.map((item) => (
-          <Pressable key={item} style={[styles.chip, mapFilter === item && styles.chipActive]} onPress={() => setMapFilter(item)}>
+          <Pressable key={item} style={[styles.chip, mapFilter === item && styles.chipActive]} onPress={() => handleFilter(item)}>
             <Text style={[styles.chipText, mapFilter === item && styles.chipTextActive]}>{item}</Text>
           </Pressable>
         ))}
       </ScrollView>
 
-      <View style={styles.mapMock}>
+      <View style={styles.mapCanvas}>
         <Image source={heroImage} style={styles.mapImage} resizeMode="cover" />
-        <LinearGradient colors={['rgba(255,255,255,0.04)', 'rgba(238,243,247,0.58)']} style={styles.mapImageOverlay} />
-        <Text style={styles.mapTitle}>Иркутская область</Text>
-        <View style={styles.mapLegend}>
-          <LegendItem color="#008F9A" label="проверено" />
-          <LegendItem color="#1769aa" label="в работе" />
-          <LegendItem color="#247647" label="решено" />
+        <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.72)']} style={styles.mapImageOverlay} />
+        <View style={styles.mapTopBar}>
+          <View>
+            <Text style={styles.mapTitle}>Иркутская область</Text>
+            <Text style={styles.mapSubtitle}>{safePoints.length} точки на карте</Text>
+          </View>
+          <View style={styles.mapLocateButton}>
+            <MaterialCommunityIcons name="crosshairs-gps" size={19} color="#141414" />
+          </View>
         </View>
-        <View style={[styles.mapPin, { top: '26%', left: '62%', backgroundColor: '#1769aa' }]} />
-        <View style={[styles.mapPin, { top: '50%', left: '30%', backgroundColor: '#008F9A' }]} />
-        <View style={[styles.mapPin, { top: '68%', left: '54%', backgroundColor: '#247647' }]} />
-      </View>
-
-      <View style={styles.listPanel}>
-        <InfoRow
-          icon={isConfirmed ? 'check-circle-outline' : 'map-marker-outline'}
-          title={isConfirmed ? 'Вы подтвердили заявку' : 'Ближайшая заявка'}
-          text={`${nearestReport.title} · ${nearestReport.confirmations + (isConfirmed ? 1 : 0)} подтвержд.`}
-        />
-        <Pressable style={[styles.outlineWideButton, isConfirmed && styles.outlineWideButtonActive]} onPress={() => setConfirmedReportId(nearestReport.id)}>
-          <Text style={[styles.outlineButtonText, isConfirmed && styles.outlineButtonTextActive]}>
-            {isConfirmed ? 'Подтверждено' : 'Подтвердить обращение'}
-          </Text>
-        </Pressable>
+        {safePoints.map((point) => {
+          const report = filtered.find((item) => item.location === point.label) ?? reports.find((item) => item.location === point.label);
+          const pointPalette = getStatusPalette(report?.status ?? 'На модерации');
+          const active = point.label === selectedPoint.label;
+          return (
+            <Pressable
+              key={point.label}
+              style={[styles.liveMapPin, { top: point.top, left: point.left }, active && styles.liveMapPinActive]}
+              onPress={() => setSelectedPointLabel(point.label)}
+            >
+              <View style={[styles.liveMapPinCore, { backgroundColor: pointPalette.text }, active && styles.liveMapPinCoreActive]} />
+            </Pressable>
+          );
+        })}
+        <View style={styles.mapSheet}>
+          <View style={styles.mapSheetHandle} />
+          <View style={styles.mapSheetHeader}>
+            <View style={[styles.mapSheetIcon, { backgroundColor: palette.bg }]}>
+              <MaterialCommunityIcons name="map-marker-alert-outline" size={21} color={palette.text} />
+            </View>
+            <View style={styles.rowCopy}>
+              <Text style={styles.mapSheetMeta}>{nearestReport.publicId} · {selectedPoint.label}</Text>
+              <Text style={styles.mapSheetTitle}>{nearestReport.title}</Text>
+              <Text style={styles.mapSheetText}>{nearestReport.confirmations + (isConfirmed ? 1 : 0)} подтверждений · {nearestReport.nextActionLabel}</Text>
+            </View>
+            <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
+              <Text style={[styles.statusPillText, { color: palette.text }]}>{nearestReport.status}</Text>
+            </View>
+          </View>
+          <Pressable style={[styles.mapConfirmButton, isConfirmed && styles.mapConfirmButtonDone]} onPress={() => setConfirmedReportId(nearestReport.id)}>
+            <Text style={[styles.mapConfirmButtonText, isConfirmed && styles.mapConfirmButtonTextDone]}>
+              {isConfirmed ? 'Спасибо, учли' : 'Я видел это место'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -724,6 +920,101 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
   );
 }
 
+function AdminScreen({
+  reports,
+  syncMessage,
+  isSyncing,
+  onRefresh,
+  onStatusChange,
+}: {
+  reports: Report[];
+  syncMessage: string;
+  isSyncing: boolean;
+  onRefresh: () => void;
+  onStatusChange: (report: Report, status: ReportStatusCode) => void;
+}) {
+  const activeReports = reports.filter((report) => report.statusCode !== 'resolved' && report.statusCode !== 'rejected');
+  const moderationCount = reports.filter((report) => report.statusCode === 'moderation').length;
+  const resolvedCount = reports.filter((report) => report.statusCode === 'resolved').length;
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Админка" rightText={`${activeReports.length} активных`} />
+      <View style={styles.adminNotice}>
+        <MaterialCommunityIcons name="server-network" size={20} color="#00736F" />
+        <View style={styles.rowCopy}>
+          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : 'Контур управления'}</Text>
+          <Text style={styles.adminNoticeText}>{syncMessage}</Text>
+        </View>
+        <Pressable style={styles.adminRefreshButton} onPress={onRefresh}>
+          <MaterialCommunityIcons name="refresh" size={18} color="#141414" />
+        </Pressable>
+      </View>
+
+      <View style={styles.summaryGrid}>
+        <SummaryCell label="Модерация" value={`${moderationCount}`} />
+        <SummaryCell label="В работе" value={`${activeReports.length}`} />
+        <SummaryCell label="Решено" value={`${resolvedCount}`} />
+      </View>
+
+      <View style={styles.listPanel}>
+        {reports.map((report) => (
+          <AdminReportCard key={report.publicId} report={report} onStatusChange={onStatusChange} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function AdminReportCard({
+  report,
+  onStatusChange,
+}: {
+  report: Report;
+  onStatusChange: (report: Report, status: ReportStatusCode) => void;
+}) {
+  const actions: Array<{ status: ReportStatusCode; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [];
+
+  if (report.statusCode === 'moderation') {
+    actions.push({ status: 'transferred', label: 'Передать', icon: 'send-check-outline' });
+    actions.push({ status: 'rejected', label: 'Отклонить', icon: 'close-circle-outline' });
+  }
+  if (report.statusCode === 'transferred') {
+    actions.push({ status: 'in_progress', label: 'В работу', icon: 'progress-check' });
+    actions.push({ status: 'rejected', label: 'Отклонить', icon: 'close-circle-outline' });
+  }
+  if (report.statusCode === 'in_progress') {
+    actions.push({ status: 'resolved', label: 'Решено', icon: 'check-decagram-outline' });
+    actions.push({ status: 'transferred', label: 'Вернуть', icon: 'undo-variant' });
+  }
+
+  return (
+    <View style={styles.adminCard}>
+      <View style={styles.adminCardHeader}>
+        <View style={styles.rowCopy}>
+          <Text style={styles.reportId}>{report.publicId}</Text>
+          <Text style={styles.adminCardTitle}>{report.title}</Text>
+          <Text style={styles.reportMeta}>{report.location} · {report.category} · {report.date}</Text>
+        </View>
+        <View style={[styles.statusPill, { backgroundColor: getStatusPalette(report.status).bg }]}>
+          <Text style={[styles.statusText, { color: getStatusPalette(report.status).text }]}>{report.status}</Text>
+        </View>
+      </View>
+      <Text style={styles.adminCardText}>{report.nextStep}</Text>
+      <View style={styles.adminActions}>
+        {actions.length > 0 ? actions.map((action) => (
+          <Pressable key={action.status} style={styles.adminActionButton} onPress={() => onStatusChange(report, action.status)}>
+            <MaterialCommunityIcons name={action.icon} size={16} color="#141414" />
+            <Text style={styles.adminActionText}>{action.label}</Text>
+          </Pressable>
+        )) : (
+          <Text style={styles.adminDoneText}>Финальный статус, действий нет</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Tab) => void }) {
   const tabs: Array<{ id: Tab; icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }> = [
     { id: 'home', icon: 'home-variant-outline', label: 'Главная' },
@@ -731,6 +1022,7 @@ function BottomNav({ activeTab, onChange }: { activeTab: Tab; onChange: (tab: Ta
     { id: 'report', icon: 'plus-circle', label: 'Сообщить' },
     { id: 'messages', icon: 'clipboard-text-outline', label: 'Заявки' },
     { id: 'profile', icon: 'gift-outline', label: 'Бонусы' },
+    { id: 'admin', icon: 'shield-crown-outline', label: 'Админ' },
   ];
 
   return (
@@ -803,13 +1095,14 @@ function RewardsSection({ balance }: { balance: number }) {
   const nextReward = rewards.find((reward) => reward.cost > balance);
   const targetCost = nextReward?.cost ?? rewards[rewards.length - 1].cost;
   const progress = Math.min(100, Math.round((balance / targetCost) * 100));
+  const availableCount = rewards.filter((reward) => balance >= reward.cost).length;
 
   return (
     <View style={styles.rewardsPanel}>
       <View style={styles.rewardsHeader}>
         <View>
-          <Text style={styles.rewardsTitle}>Ваши листики</Text>
-          <Text style={styles.rewardsText}>Зарабатывайте за полезные действия и меняйте на бонусы.</Text>
+          <Text style={styles.rewardsTitle}>Бонусы за помощь</Text>
+          <Text style={styles.rewardsText}>Листики можно обменять у партнеров Байкала.</Text>
         </View>
         <View style={styles.leafBalance}>
           <MaterialCommunityIcons name="leaf" size={18} color="#ffffff" />
@@ -818,39 +1111,37 @@ function RewardsSection({ balance }: { balance: number }) {
       </View>
       <View style={styles.rewardProgress}>
         <View style={styles.rewardProgressTop}>
-          <Text style={styles.rewardProgressText}>{nextReward ? 'До следующего бонуса' : 'Бонусы открыты'}</Text>
-          <Text style={styles.rewardProgressValue}>{nextReward ? `${nextReward.cost - balance} листиков` : 'все открыты'}</Text>
+          <Text style={styles.rewardProgressText}>{nextReward ? 'Следующий бонус' : 'Все бонусы доступны'}</Text>
+          <Text style={styles.rewardProgressValue}>{nextReward ? `${nextReward.cost - balance} еще` : `${availableCount}/${rewards.length}`}</Text>
         </View>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rewardRail}>
+      <View style={styles.rewardList}>
         {rewards.map((reward) => (
           <RewardCard key={reward.title} reward={reward} available={balance >= reward.cost} />
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 function RewardCard({ reward, available }: { reward: Reward; available: boolean }) {
   return (
-    <View style={styles.rewardCard}>
-      <Image source={reward.image} style={styles.rewardImage} resizeMode="cover" />
-      <LinearGradient colors={['rgba(0,0,0,0.06)', 'rgba(0,58,66,0.76)']} style={styles.rewardOverlay} />
+    <View style={[styles.rewardCard, !available && styles.rewardCardLocked]}>
       <View style={styles.rewardIcon}>
-        <MaterialCommunityIcons name={reward.icon} size={18} color="#ffffff" />
+        <MaterialCommunityIcons name={reward.icon} size={22} color={available ? '#ffffff' : '#6b7280'} />
       </View>
       <View style={styles.rewardCopy}>
         <Text style={styles.rewardPartner}>{reward.partner}</Text>
         <Text style={styles.rewardTitle}>{reward.title}</Text>
-        <Text style={styles.rewardBenefit}>{reward.benefit}</Text>
-        <View style={[styles.rewardCost, available && styles.rewardCostAvailable]}>
-          <Text style={[styles.rewardCostText, available && styles.rewardCostTextAvailable]}>
-            {available ? 'Можно забрать' : `${reward.cost} листиков`}
-          </Text>
-        </View>
+        <Text style={styles.rewardBenefit}>{reward.benefit} · {reward.note}</Text>
+      </View>
+      <View style={[styles.rewardCost, available && styles.rewardCostAvailable]}>
+        <Text style={[styles.rewardCostText, available && styles.rewardCostTextAvailable]}>
+          {available ? 'Забрать' : `${reward.cost}`}
+        </Text>
       </View>
     </View>
   );
@@ -1109,15 +1400,6 @@ function DetailStat({ label, value }: { label: string; value: string }) {
     <View style={styles.detailStat}>
       <Text style={styles.detailStatLabel}>{label}</Text>
       <Text style={styles.detailStatValue} numberOfLines={2}>{value}</Text>
-    </View>
-  );
-}
-
-function LegendItem({ color, label }: { color: string; label: string }) {
-  return (
-    <View style={styles.legendItem}>
-      <View style={[styles.legendDot, { backgroundColor: color }]} />
-      <Text style={styles.legendText}>{label}</Text>
     </View>
   );
 }
@@ -1406,89 +1688,75 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  rewardRail: {
-    gap: 10,
-    paddingTop: 12,
+  rewardList: {
+    gap: 8,
+    marginTop: 12,
   },
   rewardCard: {
-    width: 174,
-    height: 184,
-    borderRadius: 20,
-    backgroundColor: '#0A3D44',
-    overflow: 'hidden',
-    position: 'relative',
+    minHeight: 76,
+    borderRadius: 18,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#eef0f2',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
   },
-  rewardImage: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-  },
-  rewardOverlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
+  rewardCardLocked: {
+    opacity: 0.72,
   },
   rewardIcon: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: '#008F9A',
     alignItems: 'center',
     justifyContent: 'center',
   },
   rewardCopy: {
     flex: 1,
-    padding: 13,
-    justifyContent: 'flex-end',
+    minWidth: 0,
   },
   rewardPartner: {
-    color: 'rgba(255,255,255,0.78)',
+    color: '#6b7280',
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
-    marginBottom: 5,
+    marginBottom: 2,
   },
   rewardTitle: {
-    color: '#ffffff',
-    fontSize: 17,
-    lineHeight: 21,
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '800',
   },
   rewardBenefit: {
-    color: 'rgba(255,255,255,0.82)',
+    color: '#5f6368',
     fontSize: 12,
     lineHeight: 16,
-    marginTop: 3,
+    marginTop: 2,
     fontWeight: '700',
   },
   rewardCost: {
-    alignSelf: 'flex-start',
-    minHeight: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 9,
+    minWidth: 72,
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: '#f2f3f5',
+    paddingHorizontal: 11,
+    alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 10,
   },
   rewardCostAvailable: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#E8F5F3',
   },
   rewardCostText: {
-    color: '#ffffff',
-    fontSize: 11,
+    color: '#5f6368',
+    fontSize: 12,
     fontWeight: '800',
   },
   rewardCostTextAvailable: {
-    color: '#141414',
+    color: '#00736F',
   },
   outlineButton: {
     flex: 1,
@@ -1962,6 +2230,140 @@ const styles = StyleSheet.create({
   locationPointTextActive: {
     color: 'rgba(255,255,255,0.82)',
   },
+  mapCanvas: {
+    minHeight: 430,
+    borderRadius: 22,
+    backgroundColor: '#e8f5f3',
+    overflow: 'hidden',
+    position: 'relative',
+    marginBottom: 14,
+  },
+  mapTopBar: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    minHeight: 52,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mapSubtitle: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 1,
+    fontWeight: '700',
+  },
+  mapLocateButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 13,
+    backgroundColor: '#f5f6f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveMapPin: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveMapPinActive: {
+    backgroundColor: '#ffffff',
+    transform: [{ scale: 1.18 }],
+  },
+  liveMapPinCore: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+  liveMapPinCoreActive: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderColor: '#141414',
+  },
+  mapSheet: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.93)',
+    padding: 12,
+  },
+  mapSheetHandle: {
+    alignSelf: 'center',
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#d1d5db',
+    marginBottom: 10,
+  },
+  mapSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  mapSheetIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapSheetMeta: {
+    color: '#6b7280',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  mapSheetTitle: {
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  mapSheetText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  statusPillText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  mapConfirmButton: {
+    minHeight: 42,
+    borderRadius: 15,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  mapConfirmButtonDone: {
+    backgroundColor: '#e7f6ed',
+  },
+  mapConfirmButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  mapConfirmButtonTextDone: {
+    color: '#247647',
+  },
   inlineHint: {
     color: '#00736F',
     fontSize: 13,
@@ -2027,6 +2429,87 @@ const styles = StyleSheet.create({
     color: '#00736F',
     fontSize: 12,
     fontWeight: '800',
+  },
+  adminNotice: {
+    minHeight: 66,
+    borderRadius: 18,
+    backgroundColor: '#E8F5F3',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  adminNoticeTitle: {
+    color: '#141414',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  adminNoticeText: {
+    color: '#00736F',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 2,
+    fontWeight: '700',
+  },
+  adminRefreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminCard: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginBottom: 6,
+  },
+  adminCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  adminCardTitle: {
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  adminCardText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  adminActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  adminActionButton: {
+    minHeight: 36,
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  adminActionText: {
+    color: '#141414',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  adminDoneText: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
   },
   successBlock: {
     borderRadius: 22,
@@ -2290,15 +2773,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  mapMock: {
-    height: 320,
-    borderRadius: 22,
-    backgroundColor: '#eef3f7',
-    overflow: 'hidden',
-    marginBottom: 14,
-    padding: 18,
-    position: 'relative',
-  },
   mapImage: {
     position: 'absolute',
     top: 0,
@@ -2319,39 +2793,6 @@ const styles = StyleSheet.create({
     color: '#141414',
     fontSize: 18,
     fontWeight: '800',
-  },
-  mapLegend: {
-    alignSelf: 'flex-start',
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.78)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    gap: 6,
-    marginTop: 10,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    color: '#5f6368',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  mapPin: {
-    position: 'absolute',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#008F9A',
-    borderWidth: 4,
-    borderColor: '#ffffff',
   },
   profileCard: {
     borderRadius: 18,

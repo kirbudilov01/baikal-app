@@ -5,10 +5,11 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
-    "expo": "~56.0.12",
-    "expo-image-picker": "~56.0.18",
+    "expo": "~56.0.18",
+    "expo-font": "~56.0.7",
+    "expo-image-picker": "~56.0.22",
     "expo-linear-gradient": "~56.0.4",
-    "expo-location": "~56.0.18",
+    "expo-location": "~56.0.22",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -27,8 +28,12 @@
     "web": "expo start --web",
     "build:web": "expo export --platform web --output-dir dist",
     "preview:web": "npx serve dist",
-    "build:ios:preview": "eas build --platform ios --profile preview",
-    "build:android:preview": "eas build --platform android --profile preview"
+    "build:ios:preview": "npx eas-cli build --platform ios --profile preview",
+    "build:ios:production": "npx eas-cli build --platform ios --profile production",
+    "submit:ios:testflight": "npx eas-cli submit --platform ios --profile production --latest",
+    "release:ios:testflight": "npx eas-cli build --platform ios --profile production --auto-submit",
+    "credentials:ios": "npx eas-cli credentials --platform ios",
+    "build:android:preview": "npx eas-cli build --platform android --profile preview"
   },
   "private": true
 }

@@ -1,0 +1,34 @@
+{
+  "configVersion": 0,
+  "apple": {
+    "copyright": "2026 TODO LEGAL ENTITY",
+    "categories": {
+      "primary": "LIFESTYLE",
+      "secondary": "UTILITIES"
+    },
+    "info": {
+      "en-US": {
+        "title": "Байкал в наших руках",
+        "subtitle": "Report problems on Baikal",
+        "description": "Байкал в наших руках helps people report environmental problems near Lake Baikal: illegal logging, waste, polluted water, damaged trails, and other issues. Add a photo, choose a place, track the status, and receive leaf points for useful actions.",
+        "keywords": [
+          "baikal",
+          "ecology",
+          "reports",
+          "environment",
+          "volunteer",
+          "nature"
+        ],
+        "marketingUrl": "TODO_PUBLIC_MARKETING_URL",
+        "supportUrl": "TODO_PUBLIC_SUPPORT_URL",
+        "privacyPolicyUrl": "TODO_PUBLIC_PRIVACY_POLICY_URL"
+      }
+    },
+    "review": {
+      "notes": "This app lets users report environmental issues near Lake Baikal. Camera and photo library access are used only to attach evidence photos to a report. Location access is used only to choose or attach the problem location. Reports are reviewed by moderators/admins before being forwarded to responsible teams. The app does not contain social networking or public user profiles."
+    },
+    "release": {
+      "automaticRelease": false
+    }
+  }
+}

@@ -76,6 +76,20 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     });
     assert.equal(repeatedClaim.status, 409);
 
+    const uploaded = await fetch(`${baseUrl}/api/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contentType: 'image/png',
+        dataBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+      }),
+    }).then((response) => response.json());
+
+    assert.match(uploaded.upload.url, /^http:\/\/127\.0\.0\.1:\d+\/uploads\/.+\.png$/);
+    const uploadedFile = await fetch(uploaded.upload.url);
+    assert.equal(uploadedFile.status, 200);
+    assert.equal(uploadedFile.headers.get('content-type'), 'image/png');
+
     const unauthAdmin = await fetch(`${baseUrl}/api/admin/reports`);
     assert.equal(unauthAdmin.status, 401);
 
@@ -89,11 +103,13 @@ test('serves release-critical API, legal pages, and admin protection', async () 
         locationText: 'Листвянка',
         latitude: 51.8528,
         longitude: 104.8694,
+        photoUrl: uploaded.upload.url,
       }),
     }).then((response) => response.json());
 
     assert.match(created.report.id, /^BR-/);
     assert.equal(created.report.confirmations, 0);
+    assert.equal(created.report.photoUrl, uploaded.upload.url);
 
     const confirmed = await fetch(`${baseUrl}/api/reports/${created.report.id}/confirm`, {
       method: 'POST',

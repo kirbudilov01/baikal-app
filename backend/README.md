@@ -31,6 +31,8 @@ http://localhost:4000/admin
 
 - `GET /api/reports` - mobile list of reports
 - `POST /api/reports` - create report from mobile app
+- `POST /api/uploads` - upload report photo as base64 JSON
+- `GET /uploads/:file` - serve uploaded report photo
 - `POST /api/reports/:id/confirm` - confirm a visible report from the map
 - `GET /api/statuses` - mobile/admin status dictionary
 - `GET /api/rewards` - reward catalog
@@ -64,6 +66,9 @@ See `.env.example`.
 - `ALLOWED_ORIGINS` - comma-separated CORS allowlist.
 - `MAX_BODY_BYTES` - JSON body size limit.
 - `DB_PATH` - SQLite database path. On Render this is `/var/data/baikal.sqlite`.
+- `UPLOAD_DIR` - uploaded photo directory. On Render this is `/var/data/uploads`.
+- `MAX_UPLOAD_BYTES` - upload body/file limit for report photos.
+- `PUBLIC_BASE_URL` - public backend URL used for uploaded photo links.
 - `SUPPORT_EMAIL` - public support contact shown on legal pages.
 - `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS`, `LEGAL_OPERATOR_INN` - legal operator placeholders for public pages.
 - `DATA_HOSTING_NOTE` - data hosting/legal localization note.

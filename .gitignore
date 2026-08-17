@@ -45,6 +45,7 @@ backend/data/*.tmp
 backend/data/*.sqlite
 backend/data/*.sqlite-shm
 backend/data/*.sqlite-wal
+backend/data/uploads/
 
 # typescript
 *.tsbuildinfo

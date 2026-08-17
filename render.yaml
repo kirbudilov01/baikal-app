@@ -18,6 +18,12 @@ services:
         value: "24"
       - key: DB_PATH
         value: /var/data/baikal.sqlite
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: MAX_UPLOAD_BYTES
+        value: "6000000"
+      - key: PUBLIC_BASE_URL
+        sync: false
       - key: ALLOW_UNSAFE_LOCAL_ADMIN
         value: "false"
       - key: MAX_BODY_BYTES

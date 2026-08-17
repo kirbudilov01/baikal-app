@@ -16,6 +16,8 @@ Backend уже умеет:
 - `GET /health` - проверка живости сервера.
 - `GET /api/reports` - список заявок для приложения.
 - `POST /api/reports` - создать заявку.
+- `POST /api/uploads` - загрузить фото обращения на сервер.
+- `GET /uploads/:file` - открыть загруженное фото.
 - `GET /api/statuses` - справочник статусов.
 - `POST /api/reports/:id/confirm` - подтвердить проблему на карте.
 - `GET /api/rewards` - каталог бонусов.
@@ -92,6 +94,9 @@ NODE_ENV=production
 NODE_VERSION=24
 ALLOW_UNSAFE_LOCAL_ADMIN=false
 SUPPORT_EMAIL=реальная_почта_поддержки
+PUBLIC_BASE_URL=https://YOUR_BACKEND_URL
+UPLOAD_DIR=/var/data/uploads
+MAX_UPLOAD_BYTES=6000000
 LEGAL_OPERATOR_NAME=название_оператора
 LEGAL_OPERATOR_ADDRESS=адрес_оператора
 LEGAL_OPERATOR_INN=инн_оператора
@@ -126,9 +131,10 @@ Blueprint использует Render persistent disk:
 
 ```text
 DB_PATH=/var/data/baikal.sqlite
+UPLOAD_DIR=/var/data/uploads
 ```
 
-Это значит, что заявки и статусы переживают обычные redeploy/restart сервиса. Перед публичным релизом лучше переехать на managed Postgres в РФ или другую юридически подтвержденную production DB.
+Это значит, что заявки, статусы и загруженные фото переживают обычные redeploy/restart сервиса. Перед публичным релизом лучше переехать на managed Postgres + S3-compatible object storage в РФ или другую юридически подтвержденную production-схему.
 
 ## Временный Apple Developer account
 
@@ -160,7 +166,7 @@ EXPO_PUBLIC_API_BASE_URL
 - Рабочая админка.
 - Рабочее подтверждение заявок на карте.
 - Серверный каталог бонусов.
-- Фото загружаются не как локальный URI, а в storage.
+- Фото загружаются не как локальный URI, а в production object storage.
 - База уровня production, лучше managed Postgres.
 - Админка не зависит от публичного токена в приложении.
 - Проверка на реальном iPhone.

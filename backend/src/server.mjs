@@ -1,10 +1,16 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readDb, updateDb } from './store.mjs';
 import { assertCanTransition, createDomainError, publicStatus, reportStatuses } from './status-machine.mjs';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 4000);
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 1_000_000);
+const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES ?? 6_000_000);
+const uploadDir = process.env.UPLOAD_DIR ?? join(__dirname, '..', 'data', 'uploads');
 const adminToken = process.env.ADMIN_TOKEN ?? '';
 const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@example.com';
 const legalOperatorName = process.env.LEGAL_OPERATOR_NAME ?? 'Оператор проекта «Байкал в наших руках»';
@@ -69,18 +75,64 @@ function sendHtml(response, statusCode, html) {
   response.end(html);
 }
 
-async function readJson(request) {
+function sendBuffer(response, statusCode, payload, contentType) {
+  response.writeHead(statusCode, {
+    'content-type': contentType,
+    'cache-control': 'public, max-age=31536000, immutable',
+  });
+  response.end(payload);
+}
+
+async function readJson(request, limitBytes = maxBodyBytes) {
   const chunks = [];
   let totalBytes = 0;
   for await (const chunk of request) {
     totalBytes += chunk.length;
-    if (totalBytes > maxBodyBytes) {
+    if (totalBytes > limitBytes) {
       throw createDomainError(413, 'Request body is too large');
     }
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function publicBaseUrl(request) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, '');
+  const proto = request.headers['x-forwarded-proto'] || 'http';
+  return `${proto}://${request.headers.host}`;
+}
+
+function uploadExtension(contentType) {
+  if (contentType === 'image/jpeg') return '.jpg';
+  if (contentType === 'image/png') return '.png';
+  if (contentType === 'image/webp') return '.webp';
+  if (contentType === 'image/heic') return '.heic';
+  throw createDomainError(400, 'Unsupported image type');
+}
+
+async function saveUpload(request) {
+  const payload = await readJson(request, maxUploadBytes);
+  const contentType = String(payload.contentType || 'image/jpeg').toLowerCase();
+  const extension = uploadExtension(contentType);
+  const dataBase64 = String(payload.dataBase64 || '');
+  if (!dataBase64) throw createDomainError(400, 'Missing field: dataBase64');
+
+  const buffer = Buffer.from(dataBase64, 'base64');
+  if (!buffer.length) throw createDomainError(400, 'Uploaded file is empty');
+  if (buffer.length > maxUploadBytes) throw createDomainError(413, 'Uploaded file is too large');
+
+  await mkdir(uploadDir, { recursive: true });
+  const fileName = `${randomUUID()}${extension}`;
+  const filePath = join(uploadDir, fileName);
+  await writeFile(filePath, buffer, { flag: 'wx' });
+
+  return {
+    url: `${publicBaseUrl(request)}/uploads/${fileName}`,
+    path: `/uploads/${fileName}`,
+    contentType,
+    size: buffer.length,
+  };
 }
 
 function requireAdmin(request) {
@@ -823,6 +875,21 @@ async function route(request, response) {
     return;
   }
 
+  const uploadFileMatch = url.pathname.match(/^\/uploads\/([a-f0-9-]+\.(?:jpg|png|webp|heic))$/);
+  if (request.method === 'GET' && uploadFileMatch) {
+    const fileName = uploadFileMatch[1];
+    const extension = fileName.split('.').pop();
+    const contentType = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : extension === 'heic' ? 'image/heic' : 'image/jpeg';
+    try {
+      const payload = await readFile(join(uploadDir, fileName));
+      sendBuffer(response, 200, payload, contentType);
+    } catch (error) {
+      if (error.code === 'ENOENT') throw createDomainError(404, 'Upload not found');
+      throw error;
+    }
+    return;
+  }
+
   if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/admin')) {
     sendHtml(response, 200, adminPageHtml());
     return;
@@ -850,6 +917,12 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/api/statuses') {
     sendJson(response, 200, { statuses: Object.entries(reportStatuses).map(([code]) => publicStatus(code)) });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/uploads') {
+    const upload = await saveUpload(request);
+    sendJson(response, 201, { upload });
     return;
   }
 

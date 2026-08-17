@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { File as ExpoFile } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -117,6 +118,13 @@ type ProfileSummary = {
   availableRewards: string[];
   claimedRewards: RewardClaim[];
   nextReward: ApiReward | null;
+};
+
+type ApiUpload = {
+  url: string;
+  path: string;
+  contentType: string;
+  size: number;
 };
 
 type Reward = {
@@ -321,6 +329,22 @@ async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+function inferImageContentType(uri: string) {
+  const lower = uri.toLowerCase();
+  if (lower.includes('image/png') || lower.endsWith('.png')) return 'image/png';
+  if (lower.includes('image/webp') || lower.endsWith('.webp')) return 'image/webp';
+  if (lower.includes('image/heic') || lower.endsWith('.heic')) return 'image/heic';
+  return 'image/jpeg';
+}
+
+async function imageUriToBase64(uri: string) {
+  const dataUrlMatch = uri.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+  if (dataUrlMatch) return dataUrlMatch[2];
+
+  const file = new ExpoFile(uri);
+  return file.base64();
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [selectedCategory, setSelectedCategory] = useState(categories[0].label);
@@ -460,6 +484,18 @@ export default function App() {
     let nextReport = localReport;
 
     try {
+      let uploadedPhotoUrl = pickedImage;
+      if (pickedImage && !pickedImage.startsWith('http')) {
+        const uploadPayload = await requestJson<{ upload: ApiUpload }>('/api/uploads', {
+          method: 'POST',
+          body: JSON.stringify({
+            contentType: inferImageContentType(pickedImage),
+            dataBase64: await imageUriToBase64(pickedImage),
+          }),
+        });
+        uploadedPhotoUrl = uploadPayload.upload.url;
+      }
+
       const payload = await requestJson<{ report: ApiReport }>('/api/reports', {
         method: 'POST',
         body: JSON.stringify({
@@ -469,7 +505,7 @@ export default function App() {
           locationText: localReport.location,
           latitude: pickedLocation?.latitude ?? 52.28697,
           longitude: pickedLocation?.longitude ?? 104.30502,
-          photoUrl: pickedImage,
+          photoUrl: uploadedPhotoUrl,
         }),
       });
       nextReport = reportFromApi(payload.report);

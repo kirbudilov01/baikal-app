@@ -27,6 +27,7 @@ Backend уже умеет:
 - `GET /privacy` - публичная страница политики конфиденциальности.
 - `GET /support` - публичная страница поддержки.
 - `GET /data-deletion` - публичный процесс удаления данных.
+- `GET /terms` - пользовательское соглашение.
 
 Админка защищена `ADMIN_TOKEN`.
 
@@ -43,9 +44,9 @@ Backend уже умеет:
 
 Ограничения временного сервера:
 
-- текущая база - JSON-файл, не production database;
+- текущая база - SQLite на persistent disk Render, годится для TestFlight и пилота, но не заменяет полноценный production Postgres;
 - фото пока не хранятся в object storage;
-- на бесплатном/дешевом тарифе возможны sleep/restart;
+- на дешевом тарифе возможны ограничения по ресурсам;
 - для публичного App Store лучше Postgres + object storage + мониторинг.
 
 ## Как приложение поймет, куда отправлять заявки
@@ -57,6 +58,7 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL 
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
 ```
 
 Для внутренней админ-сборки можно включить:
@@ -86,8 +88,14 @@ ADMIN_TOKEN=сгенерированный_секрет
 ALLOWED_ORIGINS=https://kirbudilov01.github.io,https://YOUR_DOMAIN
 MAX_BODY_BYTES=1000000
 NODE_ENV=production
+NODE_VERSION=24
 ALLOW_UNSAFE_LOCAL_ADMIN=false
 SUPPORT_EMAIL=реальная_почта_поддержки
+LEGAL_OPERATOR_NAME=название_оператора
+LEGAL_OPERATOR_ADDRESS=адрес_оператора
+LEGAL_OPERATOR_INN=инн_оператора
+LEGAL_EFFECTIVE_DATE=17.08.2026
+DATA_HOSTING_NOTE=финальная_формулировка_о_хостинге_данных
 ```
 
 4. Нажать Apply.
@@ -110,7 +118,16 @@ https://YOUR_BACKEND_URL/admin
 https://YOUR_BACKEND_URL/privacy
 https://YOUR_BACKEND_URL/support
 https://YOUR_BACKEND_URL/data-deletion
+https://YOUR_BACKEND_URL/terms
 ```
+
+Blueprint использует Render persistent disk:
+
+```text
+DB_PATH=/var/data/baikal.sqlite
+```
+
+Это значит, что заявки и статусы переживают обычные redeploy/restart сервиса. Перед публичным релизом лучше переехать на managed Postgres в РФ или другую юридически подтвержденную production DB.
 
 ## Временный Apple Developer account
 
@@ -143,9 +160,15 @@ EXPO_PUBLIC_API_BASE_URL
 - Рабочее подтверждение заявок на карте.
 - Серверный каталог бонусов.
 - Фото загружаются не как локальный URI, а в storage.
-- База не JSON-файл, а durable DB.
+- База уровня production, лучше managed Postgres.
 - Админка не зависит от публичного токена в приложении.
 - Проверка на реальном iPhone.
+
+## Юридический пакет
+
+Рабочий драфт лежит в `LEGAL_RELEASE_DRAFT_RU.md`.
+
+Перед публичной отправкой в App Store нужно заменить все временные данные оператора и проверить текст с юристом/ответственным за персональные данные.
 
 ## Завтрашняя цель
 

@@ -107,6 +107,7 @@ const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
 const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
 const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
+const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 
 const mapPoints: MapPoint[] = [
@@ -952,6 +953,13 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
             icon="file-document-outline"
             title="Политика приватности"
             text={PRIVACY_URL ? 'Откроется в браузере.' : 'Добавим публичную ссылку перед релизом.'}
+          />
+        </Pressable>
+        <Pressable onPress={() => openUrl(TERMS_URL)} disabled={!TERMS_URL}>
+          <InfoRow
+            icon="clipboard-text-outline"
+            title="Пользовательское соглашение"
+            text={TERMS_URL ? 'Правила сервиса, баллов и модерации.' : 'Добавим публичную ссылку перед релизом.'}
           />
         </Pressable>
         <Pressable onPress={() => openUrl(SUPPORT_URL)} disabled={!SUPPORT_URL}>

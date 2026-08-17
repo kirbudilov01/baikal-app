@@ -1,0 +1,99 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+const nodeBin = process.execPath;
+
+async function waitForHealth(baseUrl) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/health`);
+      if (response.ok) return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error('Server did not become healthy');
+}
+
+async function withServer(callback) {
+  const dataDir = await mkdtemp(join(tmpdir(), 'baikal-api-test-'));
+  const port = 4200 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(nodeBin, ['src/server.mjs'], {
+    cwd: join(import.meta.dirname, '..'),
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      PORT: String(port),
+      DB_PATH: join(dataDir, 'test.sqlite'),
+      ADMIN_TOKEN: 'test-token',
+      ALLOWED_ORIGINS: 'http://localhost:4173',
+      SUPPORT_EMAIL: 'support@example.com',
+      LEGAL_OPERATOR_NAME: 'Тестовый оператор',
+      LEGAL_OPERATOR_ADDRESS: 'Иркутская область',
+      LEGAL_OPERATOR_INN: '0000000000',
+    },
+    stdio: 'ignore',
+  });
+
+  try {
+    await waitForHealth(baseUrl);
+    await callback(baseUrl);
+  } finally {
+    child.kill();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+}
+
+test('serves release-critical API, legal pages, and admin protection', async () => {
+  await withServer(async (baseUrl) => {
+    const privacy = await fetch(`${baseUrl}/privacy`);
+    assert.equal(privacy.status, 200);
+    assert.match(await privacy.text(), /Политика конфиденциальности/);
+
+    const terms = await fetch(`${baseUrl}/terms`);
+    assert.equal(terms.status, 200);
+    assert.match(await terms.text(), /Пользовательское соглашение/);
+
+    const rewards = await fetch(`${baseUrl}/api/rewards`).then((response) => response.json());
+    assert.equal(rewards.rewards.length, 3);
+
+    const unauthAdmin = await fetch(`${baseUrl}/api/admin/reports`);
+    assert.equal(unauthAdmin.status, 401);
+
+    const created = await fetch(`${baseUrl}/api/reports`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Тестовая заявка',
+        category: 'Мусор',
+        description: 'Тестовая заявка с нормальным описанием проблемы',
+        locationText: 'Листвянка',
+        latitude: 51.8528,
+        longitude: 104.8694,
+      }),
+    }).then((response) => response.json());
+
+    assert.match(created.report.id, /^BR-/);
+    assert.equal(created.report.confirmations, 0);
+
+    const confirmed = await fetch(`${baseUrl}/api/reports/${created.report.id}/confirm`, {
+      method: 'POST',
+    }).then((response) => response.json());
+
+    assert.equal(confirmed.report.id, created.report.id);
+    assert.equal(confirmed.report.confirmations, 1);
+
+    const admin = await fetch(`${baseUrl}/api/admin/reports`, {
+      headers: { 'x-admin-token': 'test-token' },
+    }).then((response) => response.json());
+
+    const adminReport = admin.reports.find((report) => report.id === created.report.id);
+    assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
+  });
+});

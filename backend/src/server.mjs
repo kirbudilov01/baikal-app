@@ -7,6 +7,11 @@ const port = Number(process.env.PORT ?? 4000);
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 1_000_000);
 const adminToken = process.env.ADMIN_TOKEN ?? '';
 const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@example.com';
+const legalOperatorName = process.env.LEGAL_OPERATOR_NAME ?? 'Оператор проекта «Байкал в наших руках»';
+const legalOperatorAddress = process.env.LEGAL_OPERATOR_ADDRESS ?? 'Укажите юридический адрес оператора';
+const legalOperatorInn = process.env.LEGAL_OPERATOR_INN ?? 'Укажите ИНН оператора';
+const legalEffectiveDate = process.env.LEGAL_EFFECTIVE_DATE ?? '17.08.2026';
+const dataHostingNote = process.env.DATA_HOSTING_NOTE ?? 'Для публичного релиза персональные данные граждан РФ должны обрабатываться с использованием баз данных, расположенных на территории Российской Федерации.';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
@@ -647,7 +652,11 @@ function legalPageHtml({ title, subtitle, sections }) {
       <div class="subtitle">${subtitle}</div>
     </div>
     ${sectionHtml}
-    <footer>Дата обновления: ${new Intl.DateTimeFormat('ru-RU').format(new Date())}. Контакт: <a href="mailto:${supportEmail}">${supportEmail}</a></footer>
+    <section>
+      <h2>Оператор</h2>
+      <p>${legalOperatorName}. ИНН: ${legalOperatorInn}. Адрес: ${legalOperatorAddress}. Контакт: <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>
+    </section>
+    <footer>Дата вступления в силу: ${legalEffectiveDate}. Дата технического обновления: ${new Intl.DateTimeFormat('ru-RU').format(new Date())}.</footer>
   </main>
 </body>
 </html>`;
@@ -660,7 +669,7 @@ function privacyPageHtml() {
     sections: [
       {
         title: 'Какие данные обрабатываются',
-        text: 'Приложение может обрабатывать описание проблемы, выбранную категорию, координаты точки, фотографию обращения и техническую информацию, необходимую для стабильной работы сервиса.',
+        text: 'Приложение может обрабатывать описание проблемы, выбранную категорию, координаты точки, фотографию обращения, статус обращения, начисленные листики и техническую информацию, необходимую для стабильной работы сервиса.',
       },
       {
         title: 'Зачем это нужно',
@@ -672,7 +681,11 @@ function privacyPageHtml() {
       },
       {
         title: 'Хранение и удаление',
-        text: `Запрос на удаление данных можно отправить на ${supportEmail}. Перед публикацией в App Store укажите здесь юридически проверенные сроки хранения и реквизиты оператора.`,
+        text: `Запрос на удаление данных можно отправить на ${supportEmail}. Данные хранятся не дольше, чем нужно для обработки обращения, соблюдения закона и защиты прав участников проекта.`,
+      },
+      {
+        title: 'Локализация',
+        text: dataHostingNote,
       },
     ],
   });
@@ -715,6 +728,35 @@ function dataDeletionPageHtml() {
       {
         title: 'Срок обработки',
         text: 'Для релизной версии срок должен быть закреплен юридически. Для тестового запуска используйте эту страницу как рабочий публичный процесс удаления данных.',
+      },
+    ],
+  });
+}
+
+function termsPageHtml() {
+  return legalPageHtml({
+    title: 'Пользовательское соглашение',
+    subtitle: 'Правила использования приложения для фиксации экологических обращений.',
+    sections: [
+      {
+        title: 'Назначение сервиса',
+        text: 'Приложение помогает пользователям сообщать об экологических проблемах, прикладывать описание, место и фото, отслеживать статус обращения и получать листики за полезные действия.',
+      },
+      {
+        title: 'Ответственность пользователя',
+        text: 'Пользователь должен отправлять достоверные сведения, не публиковать чужие персональные данные без оснований и не использовать приложение для заведомо ложных сообщений.',
+      },
+      {
+        title: 'Модерация',
+        text: 'Оператор может проверять обращения, уточнять сведения, менять статус, отклонять некорректные обращения и передавать информацию ответственным службам.',
+      },
+      {
+        title: 'Баллы и бонусы',
+        text: 'Листики являются внутренней системой поощрения проекта и не являются денежными средствами. Условия бонусов могут меняться, а выдача зависит от доступности предложений партнеров.',
+      },
+      {
+        title: 'Ограничение сервиса',
+        text: 'Приложение не заменяет экстренные службы. При угрозе жизни, здоровью или имуществу пользователь должен сначала обратиться в соответствующие экстренные службы.',
       },
     ],
   });
@@ -782,6 +824,11 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/data-deletion') {
     sendHtml(response, 200, dataDeletionPageHtml());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/terms') {
+    sendHtml(response, 200, termsPageHtml());
     return;
   }
 

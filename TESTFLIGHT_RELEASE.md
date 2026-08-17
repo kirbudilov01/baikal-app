@@ -36,6 +36,7 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL 
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
 ```
 
 Run release checks first:
@@ -61,13 +62,15 @@ After upload, App Store Connect usually needs several minutes to process the bui
 ## What must be real before external testers
 
 - A deployed production backend URL if reports should persist outside the device.
-- Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`.
+- Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`, legal operator variables.
 - Real map provider or a clearly marked interactive prototype map.
 - Privacy Policy URL.
 - Support/contact URL.
+- Terms URL.
 - Public data deletion page: `https://YOUR_BACKEND_URL/data-deletion`.
 - App screenshots for iPhone sizes.
 - App Store review notes explaining camera, photo, and location usage.
+- Internal tester notes that this is a pre-release build connected to a temporary backend.
 
 ## Current known limitation
 
@@ -77,6 +80,7 @@ The app can be built for TestFlight as a functional prototype. For a serious App
 
 - `APP_STORE_READINESS.md` contains the release plan and blockers.
 - `APP_PRIVACY_INVENTORY.md` contains draft Privacy Nutrition Label inputs.
+- `LEGAL_RELEASE_DRAFT_RU.md` contains legal URLs, App Review notes, and Russian-market checklist.
 - `store.config.template.json` contains a safe EAS Metadata template. Copy it to `store.config.json` only after real public URLs and legal owner are ready.
 
 ```bash

@@ -3,13 +3,21 @@ services:
     name: baikal-backend
     runtime: node
     rootDir: backend
-    plan: free
+    plan: starter
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
+    disk:
+      name: baikal-backend-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: DB_PATH
+        value: /var/data/baikal.sqlite
       - key: ALLOW_UNSAFE_LOCAL_ADMIN
         value: "false"
       - key: MAX_BODY_BYTES
@@ -17,6 +25,16 @@ services:
       - key: ALLOWED_ORIGINS
         sync: false
       - key: SUPPORT_EMAIL
+        sync: false
+      - key: LEGAL_OPERATOR_NAME
+        sync: false
+      - key: LEGAL_OPERATOR_ADDRESS
+        sync: false
+      - key: LEGAL_OPERATOR_INN
+        sync: false
+      - key: LEGAL_EFFECTIVE_DATE
+        sync: false
+      - key: DATA_HOSTING_NOTE
         sync: false
       - key: ADMIN_TOKEN
         generateValue: true

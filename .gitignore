@@ -42,6 +42,9 @@ tmp/
 # local backend data
 backend/data/db.json
 backend/data/*.tmp
+backend/data/*.sqlite
+backend/data/*.sqlite-shm
+backend/data/*.sqlite-wal
 
 # typescript
 *.tsbuildinfo

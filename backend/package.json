@@ -6,9 +6,12 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "node --test src/status-machine.test.mjs"
+    "test": "node --test src/*.test.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }

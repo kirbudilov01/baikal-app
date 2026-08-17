@@ -1,9 +1,12 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import Database from 'better-sqlite3';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dbPath = join(__dirname, '..', 'data', 'db.json');
+const defaultDataDir = join(__dirname, '..', 'data');
+const dbPath = process.env.DB_PATH || join(defaultDataDir, 'baikal.sqlite');
+const legacyJsonPath = join(defaultDataDir, 'db.json');
 
 const seed = {
   reports: [
@@ -51,27 +54,172 @@ const seed = {
   ],
 };
 
-export async function readDb() {
+mkdirSync(dirname(dbPath), { recursive: true });
+
+const sqlite = new Database(dbPath);
+sqlite.pragma('journal_mode = WAL');
+sqlite.pragma('foreign_keys = ON');
+
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS reports (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT NOT NULL,
+    location_text TEXT NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    status TEXT NOT NULL,
+    points INTEGER NOT NULL DEFAULT 0,
+    confirmations INTEGER NOT NULL DEFAULT 0,
+    photo_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    report_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT,
+    actor TEXT NOT NULL,
+    comment TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+  CREATE INDEX IF NOT EXISTS idx_events_report_id ON events(report_id);
+`);
+
+const insertReport = sqlite.prepare(`
+  INSERT OR REPLACE INTO reports (
+    id,
+    title,
+    category,
+    description,
+    location_text,
+    latitude,
+    longitude,
+    status,
+    points,
+    confirmations,
+    photo_url,
+    created_at,
+    updated_at
+  ) VALUES (
+    @id,
+    @title,
+    @category,
+    @description,
+    @locationText,
+    @latitude,
+    @longitude,
+    @status,
+    @points,
+    @confirmations,
+    @photoUrl,
+    @createdAt,
+    @updatedAt
+  )
+`);
+
+const insertEvent = sqlite.prepare(`
+  INSERT OR REPLACE INTO events (
+    id,
+    report_id,
+    type,
+    status,
+    actor,
+    comment,
+    created_at
+  ) VALUES (
+    @id,
+    @reportId,
+    @type,
+    @status,
+    @actor,
+    @comment,
+    @createdAt
+  )
+`);
+
+function rowToReport(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    category: row.category,
+    description: row.description,
+    locationText: row.location_text,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    status: row.status,
+    points: row.points,
+    confirmations: row.confirmations,
+    photoUrl: row.photo_url,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function rowToEvent(row) {
+  return {
+    id: row.id,
+    reportId: row.report_id,
+    type: row.type,
+    status: row.status,
+    actor: row.actor,
+    comment: row.comment,
+    createdAt: row.created_at,
+  };
+}
+
+function safeLegacyDb() {
+  if (!existsSync(legacyJsonPath)) return null;
   try {
-    return JSON.parse(await readFile(dbPath, 'utf8'));
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    await writeDb(seed);
-    return structuredClone(seed);
+    const legacy = JSON.parse(readFileSync(legacyJsonPath, 'utf8'));
+    if (!Array.isArray(legacy.reports) || !Array.isArray(legacy.events)) return null;
+    return legacy;
+  } catch {
+    return null;
   }
 }
 
+function replaceDb(nextDb) {
+  sqlite.prepare('DELETE FROM events').run();
+  sqlite.prepare('DELETE FROM reports').run();
+  for (const report of nextDb.reports) insertReport.run(report);
+  for (const event of nextDb.events) insertEvent.run(event);
+}
+
+const reportCount = sqlite.prepare('SELECT COUNT(*) AS count FROM reports').get().count;
+if (reportCount === 0) {
+  replaceDb(safeLegacyDb() ?? seed);
+}
+
+export async function readDb() {
+  return {
+    reports: sqlite.prepare('SELECT * FROM reports ORDER BY created_at DESC').all().map(rowToReport),
+    events: sqlite.prepare('SELECT * FROM events ORDER BY created_at DESC').all().map(rowToEvent),
+  };
+}
+
 export async function writeDb(nextDb) {
-  await mkdir(dirname(dbPath), { recursive: true });
-  const tmpPath = `${dbPath}.tmp`;
-  await writeFile(tmpPath, `${JSON.stringify(nextDb, null, 2)}\n`);
-  await rename(tmpPath, dbPath);
+  const writeTransaction = sqlite.transaction(replaceDb);
+  writeTransaction(nextDb);
 }
 
 export async function updateDb(updater) {
-  const db = await readDb();
-  const nextDb = await updater(db);
-  await writeDb(nextDb);
-  return nextDb;
-}
+  const updateTransaction = sqlite.transaction(() => {
+    const db = {
+      reports: sqlite.prepare('SELECT * FROM reports ORDER BY created_at DESC').all().map(rowToReport),
+      events: sqlite.prepare('SELECT * FROM events ORDER BY created_at DESC').all().map(rowToEvent),
+    };
+    const nextDb = updater(db);
+    replaceDb(nextDb);
+    return nextDb;
+  });
 
+  return updateTransaction();
+}

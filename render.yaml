@@ -3,7 +3,7 @@ services:
     name: baikal-backend
     runtime: node
     rootDir: backend
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health

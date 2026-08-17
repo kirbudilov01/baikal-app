@@ -21,6 +21,12 @@ Health check:
 curl http://localhost:4000/health
 ```
 
+Admin panel:
+
+```text
+http://localhost:4000/admin
+```
+
 ## API
 
 - `GET /api/reports` - mobile list of reports
@@ -29,6 +35,7 @@ curl http://localhost:4000/health
 - `GET /api/admin/reports` - admin queue
 - `GET /api/admin/reports/:id` - admin report with event history
 - `POST /api/admin/reports/:id/status` - admin status transition
+- `GET /admin` - browser admin panel
 
 Admin endpoints require `ADMIN_TOKEN` in production:
 
@@ -36,6 +43,8 @@ Admin endpoints require `ADMIN_TOKEN` in production:
 curl http://localhost:4000/api/admin/reports \
   -H "x-admin-token: $ADMIN_TOKEN"
 ```
+
+The browser admin panel stores the token in local browser storage. Use it only on trusted devices.
 
 ## Environment
 
@@ -65,3 +74,15 @@ This backend uses a local JSON file for development speed. For production, keep 
 same API/status machine but replace storage with Postgres, object storage for
 photos, full admin auth/RBAC, audit logs, rate limiting, monitoring, backups,
 and CI/CD.
+
+## Render
+
+The repository contains `render.yaml` for a temporary production-like backend.
+
+Blueprint URL:
+
+```text
+https://dashboard.render.com/blueprint/new?repo=https://github.com/kirbudilov01/baikal-app
+```
+
+After deploy, set the mobile app env `EXPO_PUBLIC_API_BASE_URL` to the Render service URL.

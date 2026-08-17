@@ -26,6 +26,7 @@
 - Backend API для заявок.
 - Backend status machine.
 - Admin API.
+- Отдельная web-админка backend: `/admin`.
 - Admin UI, скрываемый через `EXPO_PUBLIC_ADMIN_ENABLED=true`.
 - Минимальная защита `/api/admin/*` через `ADMIN_TOKEN`.
 - CORS allowlist.
@@ -69,9 +70,9 @@
 ### P1: сильно желательно до внешнего TestFlight
 
 1. Реальный auth для пользователей или хотя бы anonymous device id.
-2. Отдельная web admin panel вместо админки внутри mobile shell.
+2. Улучшить отдельную web admin panel: поиск, фильтры, фото, экспорт.
 3. RBAC для админов.
-4. Admin login.
+4. Admin login вместо shared token.
 5. Postgres вместо JSON файла.
 6. Object storage для фото.
 7. Rate limiting.

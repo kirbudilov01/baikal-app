@@ -29,6 +29,13 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function sendHtml(response, statusCode, html) {
+  response.writeHead(statusCode, {
+    'content-type': 'text/html; charset=utf-8',
+  });
+  response.end(html);
+}
+
 async function readJson(request) {
   const chunks = [];
   let totalBytes = 0;
@@ -118,6 +125,400 @@ function adminReportWithActions(report, events) {
   };
 }
 
+function adminPageHtml() {
+  const statusOptions = Object.entries(reportStatuses)
+    .map(([code, meta]) => `<option value="${code}">${meta.label}</option>`)
+    .join('');
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Админка | Байкал в наших руках</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f7;
+      --surface: #ffffff;
+      --text: #141414;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --teal: #008f9a;
+      --green: #247647;
+      --danger: #a33a3a;
+      --soft: #e8f5f3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 40px;
+    }
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      line-height: 38px;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-weight: 700;
+      margin-top: 5px;
+    }
+    .auth, .summary, .reports, .detail {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .auth {
+      min-width: 320px;
+      display: flex;
+      gap: 8px;
+    }
+    input, textarea, select, button {
+      font: inherit;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+    input, textarea, select {
+      background: #fff;
+      color: var(--text);
+      padding: 11px 12px;
+      min-height: 42px;
+    }
+    input { flex: 1; min-width: 0; }
+    textarea { width: 100%; min-height: 76px; resize: vertical; }
+    button {
+      min-height: 42px;
+      padding: 0 14px;
+      border: 0;
+      background: var(--teal);
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #eef0f2;
+      color: var(--text);
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 390px;
+      gap: 16px;
+      align-items: start;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .stat {
+      background: var(--bg);
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .stat strong { display: block; font-size: 24px; }
+    .stat span { color: var(--muted); font-size: 13px; font-weight: 700; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .report {
+      width: 100%;
+      text-align: left;
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 13px;
+      margin-bottom: 9px;
+      cursor: pointer;
+    }
+    .report.active { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(0,143,154,0.12); }
+    .row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .id, .meta, .hint, .event {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 16px;
+      font-weight: 700;
+    }
+    .title {
+      font-size: 16px;
+      line-height: 20px;
+      font-weight: 850;
+      margin-top: 3px;
+    }
+    .pill {
+      border-radius: 999px;
+      padding: 6px 9px;
+      background: var(--soft);
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .detail h2 { margin: 0 0 4px; font-size: 22px; line-height: 27px; }
+    .detail-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+    .field { margin-top: 10px; }
+    .label { display: block; color: var(--muted); font-size: 12px; font-weight: 850; margin-bottom: 5px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .empty {
+      color: var(--muted);
+      padding: 22px;
+      text-align: center;
+      font-weight: 700;
+    }
+    .error { color: var(--danger); font-weight: 800; margin-top: 8px; }
+    .ok { color: var(--green); font-weight: 800; margin-top: 8px; }
+    @media (max-width: 860px) {
+      header { flex-direction: column; }
+      .auth { width: 100%; min-width: 0; }
+      .grid { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <h1>Админка</h1>
+        <div class="subtitle">Байкал в наших руках · модерация заявок</div>
+      </div>
+      <div class="auth">
+        <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password" />
+        <button id="saveToken">Войти</button>
+      </div>
+    </header>
+
+    <section class="summary" id="summary"></section>
+
+    <main class="grid">
+      <section class="reports">
+        <div class="toolbar">
+          <button class="secondary" data-filter="all">Все</button>
+          <button class="secondary" data-filter="moderation">Модерация</button>
+          <button class="secondary" data-filter="active">Активные</button>
+          <button class="secondary" data-filter="terminal">Закрытые</button>
+          <button id="refresh" class="secondary">Обновить</button>
+        </div>
+        <div id="reportList" class="empty">Введите токен администратора</div>
+      </section>
+      <aside class="detail" id="detail">
+        <div class="empty">Выберите заявку</div>
+      </aside>
+    </main>
+  </div>
+
+  <template id="statusOptions">${statusOptions}</template>
+
+  <script>
+    const state = {
+      token: localStorage.getItem('baikalAdminToken') || '',
+      reports: [],
+      summary: null,
+      selectedId: null,
+      filter: 'all',
+    };
+
+    const tokenInput = document.querySelector('#token');
+    tokenInput.value = state.token;
+
+    const statusLabels = {
+      moderation: 'На модерации',
+      transferred: 'Передано',
+      in_progress: 'В работе',
+      resolved: 'Решено',
+      rejected: 'Отклонено',
+    };
+
+    function headers() {
+      return {
+        'content-type': 'application/json',
+        'x-admin-token': state.token,
+        'x-admin-id': 'admin:web-panel',
+      };
+    }
+
+    function formatDate(value) {
+      if (!value) return '';
+      return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+    }
+
+    function filteredReports() {
+      if (state.filter === 'moderation') return state.reports.filter((r) => r.status.code === 'moderation');
+      if (state.filter === 'active') return state.reports.filter((r) => !r.status.terminal);
+      if (state.filter === 'terminal') return state.reports.filter((r) => r.status.terminal);
+      return state.reports;
+    }
+
+    function renderSummary() {
+      const summary = state.summary || { total: 0, active: 0, resolved: 0, byStatus: {} };
+      document.querySelector('#summary').innerHTML = [
+        ['Всего', summary.total || 0],
+        ['Активные', summary.active || 0],
+        ['Модерация', summary.byStatus?.moderation || 0],
+        ['Решено', summary.resolved || 0],
+      ].map(([label, value]) => '<div class="stat"><strong>' + value + '</strong><span>' + label + '</span></div>').join('');
+    }
+
+    function renderReports() {
+      const list = document.querySelector('#reportList');
+      const reports = filteredReports();
+      if (!reports.length) {
+        list.className = 'empty';
+        list.textContent = state.token ? 'Заявок нет' : 'Введите токен администратора';
+        return;
+      }
+
+      list.className = '';
+      list.innerHTML = reports.map((report) => {
+        const active = report.id === state.selectedId ? ' active' : '';
+        return '<button class="report' + active + '" data-id="' + report.id + '">' +
+          '<div class="row"><div><div class="id">' + report.id + ' · ' + report.locationText + '</div>' +
+          '<div class="title">' + report.title + '</div>' +
+          '<div class="meta">' + report.category + ' · ' + formatDate(report.createdAt) + '</div></div>' +
+          '<span class="pill">' + report.status.label + '</span></div>' +
+        '</button>';
+      }).join('');
+    }
+
+    function renderDetail() {
+      const detail = document.querySelector('#detail');
+      const report = state.reports.find((item) => item.id === state.selectedId);
+      if (!report) {
+        detail.innerHTML = '<div class="empty">Выберите заявку</div>';
+        return;
+      }
+
+      const actionButtons = (report.allowedNextStatuses || []).map((status) =>
+        '<button data-status="' + status + '">' + (statusLabels[status] || status) + '</button>'
+      ).join('');
+
+      const events = (report.events || []).map((event) =>
+        '<div class="event">[' + formatDate(event.createdAt) + '] ' + event.actor + ': ' + (event.comment || event.status || event.type) + '</div>'
+      ).join('') || '<div class="hint">Истории пока нет</div>';
+
+      detail.innerHTML = '<div class="row"><div><div class="id">' + report.id + '</div><h2>' + report.title + '</h2>' +
+        '<div class="meta">' + report.category + ' · ' + report.locationText + '</div></div>' +
+        '<span class="pill">' + report.status.label + '</span></div>' +
+        '<div class="detail-section"><span class="label">Описание</span><div>' + (report.description || 'Нет описания') + '</div></div>' +
+        '<div class="detail-section"><span class="label">Координаты</span><div>' + report.latitude + ', ' + report.longitude + '</div></div>' +
+        '<div class="detail-section"><span class="label">Комментарий администратора</span><textarea id="comment" placeholder="Например: передано координатору района"></textarea>' +
+        '<div class="actions">' + (actionButtons || '<span class="hint">Финальный статус, действий нет</span>') + '</div><div id="message"></div></div>' +
+        '<div class="detail-section"><span class="label">История</span>' + events + '</div>';
+    }
+
+    function render() {
+      renderSummary();
+      renderReports();
+      renderDetail();
+    }
+
+    async function loadReports() {
+      if (!state.token) {
+        render();
+        return;
+      }
+      const list = document.querySelector('#reportList');
+      list.className = 'empty';
+      list.textContent = 'Загрузка...';
+      try {
+        const response = await fetch('/api/admin/reports', { headers: headers() });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить заявки');
+        state.reports = payload.reports || [];
+        state.summary = payload.summary || null;
+        state.selectedId = state.selectedId || state.reports[0]?.id || null;
+        render();
+      } catch (error) {
+        list.className = 'error';
+        list.textContent = error.message;
+      }
+    }
+
+    async function changeStatus(reportId, status) {
+      const message = document.querySelector('#message');
+      const comment = document.querySelector('#comment')?.value || '';
+      message.className = 'hint';
+      message.textContent = 'Сохраняем...';
+      try {
+        const response = await fetch('/api/admin/reports/' + reportId + '/status', {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ status, comment }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Не удалось сменить статус');
+        const index = state.reports.findIndex((item) => item.id === reportId);
+        if (index >= 0) state.reports[index] = payload.report;
+        message.className = 'ok';
+        message.textContent = 'Статус обновлен';
+        await loadReports();
+      } catch (error) {
+        message.className = 'error';
+        message.textContent = error.message;
+      }
+    }
+
+    document.querySelector('#saveToken').addEventListener('click', () => {
+      state.token = tokenInput.value.trim();
+      localStorage.setItem('baikalAdminToken', state.token);
+      loadReports();
+    });
+
+    document.querySelector('#refresh').addEventListener('click', loadReports);
+
+    document.querySelector('.toolbar').addEventListener('click', (event) => {
+      const filter = event.target?.dataset?.filter;
+      if (!filter) return;
+      state.filter = filter;
+      render();
+    });
+
+    document.querySelector('#reportList').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-id]');
+      if (!button) return;
+      state.selectedId = button.dataset.id;
+      render();
+    });
+
+    document.querySelector('#detail').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-status]');
+      if (!button || !state.selectedId) return;
+      changeStatus(state.selectedId, button.dataset.status);
+    });
+
+    loadReports();
+  </script>
+</body>
+</html>`;
+}
+
 function createReportId(existingReports) {
   const numericIds = existingReports
     .map((report) => Number(String(report.id).replace('BR-', '')))
@@ -160,6 +561,11 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/health') {
     sendJson(response, 200, { ok: true, service: 'baikal-backend', time: new Date().toISOString() });
+    return;
+  }
+
+  if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/admin')) {
+    sendHtml(response, 200, adminPageHtml());
     return;
   }
 

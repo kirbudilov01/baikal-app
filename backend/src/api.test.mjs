@@ -63,6 +63,19 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     const rewards = await fetch(`${baseUrl}/api/rewards`).then((response) => response.json());
     assert.equal(rewards.rewards.length, 3);
 
+    const claimed = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
+      method: 'POST',
+    }).then((response) => response.json());
+
+    assert.match(claimed.claim.code, /^BAIKAL-/);
+    assert.equal(claimed.profile.claimedRewards.length, 1);
+    assert.equal(claimed.profile.spent, rewards.rewards[0].cost);
+
+    const repeatedClaim = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
+      method: 'POST',
+    });
+    assert.equal(repeatedClaim.status, 409);
+
     const unauthAdmin = await fetch(`${baseUrl}/api/admin/reports`);
     assert.equal(unauthAdmin.status, 401);
 

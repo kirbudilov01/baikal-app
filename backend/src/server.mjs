@@ -140,22 +140,38 @@ function reportSummary(reports) {
   };
 }
 
-function profileSummary(reports) {
+function profileSummary(reports, rewardClaims = []) {
   const baseBalance = 1250;
   const earned = reports.reduce((sum, report) => sum + report.points, 0);
+  const spent = rewardClaims
+    .filter((claim) => claim.profileId === 'demo-profile' && claim.status === 'issued')
+    .reduce((sum, claim) => sum + claim.pointsSpent, 0);
   const resolved = reports.filter((report) => report.status === 'resolved').length;
   const confirmations = reports.reduce((sum, report) => sum + report.confirmations, 0);
-  const balance = baseBalance + earned;
+  const balance = Math.max(0, baseBalance + earned - spent);
 
   return {
     id: 'demo-profile',
     balance,
     earned,
+    spent,
     resolved,
     confirmations,
     availableRewards: rewardCatalog.filter((reward) => balance >= reward.cost).map((reward) => reward.id),
+    claimedRewards: rewardClaims.filter((claim) => claim.profileId === 'demo-profile'),
     nextReward: rewardCatalog.find((reward) => balance < reward.cost) ?? null,
   };
+}
+
+function createRewardCode(rewardId) {
+  const suffix = randomUUID().slice(0, 6).toUpperCase();
+  const prefix = rewardId
+    .split('-')
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 3)
+    .toUpperCase();
+  return `BAIKAL-${prefix}-${suffix}`;
 }
 
 function allowedNextStatuses(status) {
@@ -844,7 +860,43 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/api/me/summary') {
     const db = await readDb();
-    sendJson(response, 200, { profile: profileSummary(db.reports) });
+    sendJson(response, 200, { profile: profileSummary(db.reports, db.rewardClaims) });
+    return;
+  }
+
+  const rewardClaimMatch = url.pathname.match(/^\/api\/rewards\/([^/]+)\/claim$/);
+  if (request.method === 'POST' && rewardClaimMatch) {
+    const rewardId = rewardClaimMatch[1];
+    const reward = rewardCatalog.find((item) => item.id === rewardId);
+    if (!reward) throw createDomainError(404, 'Reward not found');
+
+    const nextDb = await updateDb((db) => {
+      const summary = profileSummary(db.reports, db.rewardClaims);
+      const existingClaim = db.rewardClaims.find((claim) => claim.profileId === summary.id && claim.rewardId === rewardId);
+      if (existingClaim) throw createDomainError(409, 'Reward is already claimed');
+      if (summary.balance < reward.cost) throw createDomainError(409, 'Not enough points');
+
+      const now = new Date().toISOString();
+      const claim = {
+        id: randomUUID(),
+        profileId: summary.id,
+        rewardId,
+        code: createRewardCode(rewardId),
+        pointsSpent: reward.cost,
+        status: 'issued',
+        createdAt: now,
+      };
+
+      return {
+        rewardClaims: [claim, ...db.rewardClaims],
+      };
+    });
+
+    const claim = nextDb.rewardClaims.find((item) => item.rewardId === rewardId && item.profileId === 'demo-profile');
+    sendJson(response, 201, {
+      claim,
+      profile: profileSummary(nextDb.reports, nextDb.rewardClaims),
+    });
     return;
   }
 

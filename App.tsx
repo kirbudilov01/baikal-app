@@ -88,7 +88,39 @@ type ApiReport = {
   adminAction?: string;
 };
 
+type ApiReward = {
+  id: string;
+  title: string;
+  partner: string;
+  cost: number;
+  benefit: string;
+  note: string;
+};
+
+type RewardClaim = {
+  id: string;
+  profileId: string;
+  rewardId: string;
+  code: string;
+  pointsSpent: number;
+  status: string;
+  createdAt: string;
+};
+
+type ProfileSummary = {
+  id: string;
+  balance: number;
+  earned: number;
+  spent: number;
+  resolved: number;
+  confirmations: number;
+  availableRewards: string[];
+  claimedRewards: RewardClaim[];
+  nextReward: ApiReward | null;
+};
+
 type Reward = {
+  id: string;
   title: string;
   partner: string;
   cost: number;
@@ -127,10 +159,10 @@ const categories: Category[] = [
   { label: 'Другое', icon: 'dots-horizontal', hint: 'другая ситуация', evidenceTip: 'Опишите, что произошло, и добавьте понятный ориентир.', pointsPreview: 40 },
 ];
 
-const rewards: Reward[] = [
-  { title: 'Чай у озера', partner: 'Кафе «У Озера»', cost: 350, benefit: 'напиток в подарок', note: 'забрать сегодня', image: rewardImage, icon: 'coffee-outline' },
-  { title: 'Прокат велосипеда', partner: 'Листвянка Bike', cost: 800, benefit: '-20% на прогулку', note: '2 часа по берегу', image: heroImage, icon: 'bike' },
-  { title: 'Эко-отель', partner: 'Байкал Дом', cost: 1200, benefit: '-10% на ночь', note: 'для выходных', image: rewardImage, icon: 'home-heart' },
+const initialRewards: Reward[] = [
+  { id: 'tea-by-the-lake', title: 'Чай у озера', partner: 'Кафе «У Озера»', cost: 350, benefit: 'напиток в подарок', note: 'забрать сегодня', image: rewardImage, icon: 'coffee-outline' },
+  { id: 'bike-rental', title: 'Прокат велосипеда', partner: 'Листвянка Bike', cost: 800, benefit: '-20% на прогулку', note: '2 часа по берегу', image: heroImage, icon: 'bike' },
+  { id: 'eco-hotel', title: 'Эко-отель', partner: 'Байкал Дом', cost: 1200, benefit: '-10% на ночь', note: 'для выходных', image: rewardImage, icon: 'home-heart' },
 ];
 
 const initialReports: Report[] = [
@@ -258,6 +290,20 @@ function reportFromApi(report: ApiReport): Report {
   };
 }
 
+function rewardFromApi(reward: ApiReward): Reward {
+  const local = initialRewards.find((item) => item.id === reward.id);
+  return {
+    id: reward.id,
+    title: reward.title,
+    partner: reward.partner,
+    cost: reward.cost,
+    benefit: reward.benefit,
+    note: reward.note,
+    image: local?.image ?? rewardImage,
+    icon: local?.icon ?? 'gift-outline',
+  };
+}
+
 async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -280,6 +326,10 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(categories[0].label);
   const [description, setDescription] = useState('');
   const [reports, setReports] = useState(initialReports);
+  const [rewardCatalog, setRewardCatalog] = useState(initialRewards);
+  const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
+  const [lastClaim, setLastClaim] = useState<RewardClaim | null>(null);
+  const [confirmedReportIds, setConfirmedReportIds] = useState<Set<string>>(new Set());
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
   const [pickedImage, setPickedImage] = useState<string | null>(null);
   const [pickedLocation, setPickedLocation] = useState<LocationPoint | null>(null);
@@ -291,8 +341,8 @@ export default function App() {
   const scrollRef = useRef<ScrollView>(null);
 
   const balance = useMemo(
-    () => 1250 + reports.reduce((sum, report) => sum + report.points, 0) - initialReports.reduce((sum, report) => sum + report.points, 0),
-    [reports],
+    () => profileSummary?.balance ?? 1250 + reports.reduce((sum, report) => sum + report.points, 0) - initialReports.reduce((sum, report) => sum + report.points, 0),
+    [profileSummary?.balance, reports],
   );
 
   useEffect(() => {
@@ -342,10 +392,16 @@ export default function App() {
   const loadReportsFromApi = async () => {
     setIsSyncing(true);
     try {
-      const payload = await requestJson<{ reports: ApiReport[] }>('/api/reports');
-      const apiReports = payload.reports.map(reportFromApi);
+      const [reportPayload, rewardsPayload, profilePayload] = await Promise.all([
+        requestJson<{ reports: ApiReport[] }>('/api/reports'),
+        requestJson<{ rewards: ApiReward[] }>('/api/rewards'),
+        requestJson<{ profile: ProfileSummary }>('/api/me/summary'),
+      ]);
+      const apiReports = reportPayload.reports.map(reportFromApi);
       setReports(apiReports.length > 0 ? apiReports : initialReports);
       if (apiReports[0]) setSelectedReportId(apiReports[0].id);
+      setRewardCatalog(rewardsPayload.rewards.map(rewardFromApi));
+      setProfileSummary(profilePayload.profile);
       setSyncMessage(apiReports.length > 0 ? 'Backend подключен: заявки синхронизированы' : 'Backend подключен: заявок пока нет');
     } catch {
       setSyncMessage('Локальный режим: запустите backend для синхронизации');
@@ -423,6 +479,9 @@ export default function App() {
     }
 
     setReports([nextReport, ...reports]);
+    requestJson<{ profile: ProfileSummary }>('/api/me/summary')
+      .then((payload) => setProfileSummary(payload.profile))
+      .catch(() => undefined);
     setSubmittedReport(nextReport);
     setSelectedReportId(nextReport.id);
     clearDraft();
@@ -430,12 +489,18 @@ export default function App() {
   };
 
   const confirmReport = async (report: Report) => {
+    if (confirmedReportIds.has(report.publicId) || !report.canConfirm) return;
+    setConfirmedReportIds((items) => new Set(items).add(report.publicId));
+
     try {
       const payload = await requestJson<{ report: ApiReport }>(`/api/reports/${report.publicId}/confirm`, {
         method: 'POST',
       });
       const updated = reportFromApi(payload.report);
       setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
+      requestJson<{ profile: ProfileSummary }>('/api/me/summary')
+        .then((summaryPayload) => setProfileSummary(summaryPayload.profile))
+        .catch(() => undefined);
       setSyncMessage(`Подтверждение ${updated.publicId} учтено`);
     } catch {
       const updated = {
@@ -448,15 +513,36 @@ export default function App() {
     }
   };
 
+  const claimReward = async (reward: Reward) => {
+    try {
+      const payload = await requestJson<{ claim: RewardClaim; profile: ProfileSummary }>(`/api/rewards/${reward.id}/claim`, {
+        method: 'POST',
+      });
+      setProfileSummary(payload.profile);
+      setLastClaim(payload.claim);
+      setSyncMessage(`Бонус ${reward.title} забронирован`);
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : 'Не удалось забрать бонус');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
       <View style={styles.shell}>
         <ScrollView key={activeTab} ref={scrollRef} style={styles.content} contentContainerStyle={styles.contentInner} showsVerticalScrollIndicator={false}>
           {activeTab === 'home' && (
-            <HomeScreen balance={balance} reports={reports} onReport={() => setActiveTab('report')} onOpenReports={() => setActiveTab('messages')} />
+            <HomeScreen
+              balance={balance}
+              reports={reports}
+              rewards={rewardCatalog}
+              claimedRewards={profileSummary?.claimedRewards ?? []}
+              onReport={() => setActiveTab('report')}
+              onOpenReports={() => setActiveTab('messages')}
+              onClaimReward={claimReward}
+            />
           )}
-          {activeTab === 'map' && <MapScreen reports={reports} onConfirmReport={confirmReport} />}
+          {activeTab === 'map' && <MapScreen reports={reports} confirmedReportIds={confirmedReportIds} onConfirmReport={confirmReport} />}
           {activeTab === 'report' && (
             <ReportScreen
               reports={reports}
@@ -481,8 +567,25 @@ export default function App() {
           {activeTab === 'success' && submittedReport && (
             <SuccessScreen report={submittedReport} onMessages={() => setActiveTab('messages')} onAnother={() => setActiveTab('report')} />
           )}
-          {activeTab === 'messages' && <MessagesScreen reports={reports} selectedReportId={selectedReportId} onSelectReport={setSelectedReportId} />}
-          {activeTab === 'profile' && <ProfileScreen balance={balance} reports={reports} />}
+          {activeTab === 'messages' && (
+            <MessagesScreen
+              reports={reports}
+              selectedReportId={selectedReportId}
+              onSelectReport={setSelectedReportId}
+              confirmedReportIds={confirmedReportIds}
+              onConfirmReport={confirmReport}
+            />
+          )}
+          {activeTab === 'profile' && (
+            <ProfileScreen
+              balance={balance}
+              reports={reports}
+              rewards={rewardCatalog}
+              claimedRewards={profileSummary?.claimedRewards ?? []}
+              lastClaim={lastClaim}
+              onClaimReward={claimReward}
+            />
+          )}
           {ADMIN_ENABLED && activeTab === 'admin' && (
             <AdminScreen
               reports={reports}
@@ -519,13 +622,19 @@ export default function App() {
 function HomeScreen({
   balance,
   reports,
+  rewards,
+  claimedRewards,
   onReport,
   onOpenReports,
+  onClaimReward,
 }: {
   balance: number;
   reports: Report[];
+  rewards: Reward[];
+  claimedRewards: RewardClaim[];
   onReport: () => void;
   onOpenReports: () => void;
+  onClaimReward: (reward: Reward) => void;
 }) {
   const activeReports = reports.filter((report) => report.status !== 'Решено' && report.status !== 'Отклонено').length;
   const solvedReports = reports.filter((report) => report.status === 'Решено').length;
@@ -556,7 +665,7 @@ function HomeScreen({
       <WorkflowStrip />
       <EmergencyNotice />
 
-      <RewardsSection balance={balance} />
+      <RewardsSection balance={balance} rewards={rewards} claimedRewards={claimedRewards} onClaimReward={onClaimReward} compact />
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Активно" value={`${activeReports}`} />
@@ -797,10 +906,14 @@ function MessagesScreen({
   reports,
   selectedReportId,
   onSelectReport,
+  confirmedReportIds,
+  onConfirmReport,
 }: {
   reports: Report[];
   selectedReportId: number;
   onSelectReport: (id: number) => void;
+  confirmedReportIds: Set<string>;
+  onConfirmReport: (report: Report) => void;
 }) {
   const [filter, setFilter] = useState<ReportFilter>('Все');
   const visibleReports = reports.filter((report) => {
@@ -824,14 +937,25 @@ function MessagesScreen({
         ))}
       </View>
 
-      <ReportDetail report={selectedReport} />
+      <ReportDetail
+        report={selectedReport}
+        isConfirmed={confirmedReportIds.has(selectedReport.publicId)}
+        onConfirmReport={onConfirmReport}
+      />
     </View>
   );
 }
 
-function MapScreen({ reports, onConfirmReport }: { reports: Report[]; onConfirmReport: (report: Report) => void }) {
+function MapScreen({
+  reports,
+  confirmedReportIds,
+  onConfirmReport,
+}: {
+  reports: Report[];
+  confirmedReportIds: Set<string>;
+  onConfirmReport: (report: Report) => void;
+}) {
   const [mapFilter, setMapFilter] = useState('Все');
-  const [confirmedReportId, setConfirmedReportId] = useState<number | null>(null);
   const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
   const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
@@ -839,7 +963,7 @@ function MapScreen({ reports, onConfirmReport }: { reports: Report[]; onConfirmR
   const safePoints = visiblePoints.length > 0 ? visiblePoints : mapPoints;
   const selectedPoint = safePoints.find((point) => point.label === selectedPointLabel) ?? safePoints[0];
   const nearestReport = filtered.find((report) => report.location === selectedPoint.label) ?? filtered[0] ?? reports[0];
-  const isConfirmed = confirmedReportId === nearestReport.id;
+  const isConfirmed = confirmedReportIds.has(nearestReport.publicId);
   const palette = getStatusPalette(nearestReport.status);
 
   const handleFilter = (item: string) => {
@@ -906,7 +1030,6 @@ function MapScreen({ reports, onConfirmReport }: { reports: Report[]; onConfirmR
             style={[styles.mapConfirmButton, isConfirmed && styles.mapConfirmButtonDone]}
             disabled={isConfirmed || !nearestReport.canConfirm}
             onPress={() => {
-              setConfirmedReportId(nearestReport.id);
               onConfirmReport(nearestReport);
             }}
           >
@@ -920,7 +1043,21 @@ function MapScreen({ reports, onConfirmReport }: { reports: Report[]; onConfirmR
   );
 }
 
-function ProfileScreen({ balance, reports }: { balance: number; reports: Report[] }) {
+function ProfileScreen({
+  balance,
+  reports,
+  rewards,
+  claimedRewards,
+  lastClaim,
+  onClaimReward,
+}: {
+  balance: number;
+  reports: Report[];
+  rewards: Reward[];
+  claimedRewards: RewardClaim[];
+  lastClaim: RewardClaim | null;
+  onClaimReward: (reward: Reward) => void;
+}) {
   const openUrl = (url: string) => {
     if (!url) return;
     Linking.openURL(url).catch(() => undefined);
@@ -929,7 +1066,15 @@ function ProfileScreen({ balance, reports }: { balance: number; reports: Report[
   return (
     <View style={styles.screen}>
       <AppHeader title="Бонусы" rightText={`${balance} листиков`} />
-      <RewardsSection balance={balance} />
+      <RewardsSection balance={balance} rewards={rewards} claimedRewards={claimedRewards} onClaimReward={onClaimReward} />
+
+      {lastClaim ? (
+        <View style={styles.claimCodePanel}>
+          <Text style={styles.claimCodeLabel}>Последний бонус</Text>
+          <Text style={styles.claimCodeValue}>{lastClaim.code}</Text>
+          <Text style={styles.claimCodeText}>Покажите код партнеру. История выдачи сохранена на сервере.</Text>
+        </View>
+      ) : null}
 
       <View style={styles.profileCard}>
         <Text style={styles.profileInitial}>К</Text>
@@ -1151,11 +1296,24 @@ function MiniBadge({ icon, text }: { icon: keyof typeof MaterialCommunityIcons.g
   );
 }
 
-function RewardsSection({ balance }: { balance: number }) {
+function RewardsSection({
+  balance,
+  rewards,
+  claimedRewards,
+  onClaimReward,
+  compact = false,
+}: {
+  balance: number;
+  rewards: Reward[];
+  claimedRewards: RewardClaim[];
+  onClaimReward: (reward: Reward) => void;
+  compact?: boolean;
+}) {
   const nextReward = rewards.find((reward) => reward.cost > balance);
-  const targetCost = nextReward?.cost ?? rewards[rewards.length - 1].cost;
+  const targetCost = nextReward?.cost ?? rewards[rewards.length - 1]?.cost ?? Math.max(balance, 1);
   const progress = Math.min(100, Math.round((balance / targetCost) * 100));
   const availableCount = rewards.filter((reward) => balance >= reward.cost).length;
+  const claimedIds = new Set(claimedRewards.map((claim) => claim.rewardId));
 
   return (
     <View style={styles.rewardsPanel}>
@@ -1179,30 +1337,50 @@ function RewardsSection({ balance }: { balance: number }) {
         </View>
       </View>
       <View style={styles.rewardList}>
-        {rewards.map((reward) => (
-          <RewardCard key={reward.title} reward={reward} available={balance >= reward.cost} />
+        {(compact ? rewards.slice(0, 2) : rewards).map((reward) => (
+          <RewardCard
+            key={reward.id}
+            reward={reward}
+            available={balance >= reward.cost}
+            claimed={claimedIds.has(reward.id)}
+            onClaim={() => onClaimReward(reward)}
+          />
         ))}
       </View>
     </View>
   );
 }
 
-function RewardCard({ reward, available }: { reward: Reward; available: boolean }) {
+function RewardCard({
+  reward,
+  available,
+  claimed,
+  onClaim,
+}: {
+  reward: Reward;
+  available: boolean;
+  claimed: boolean;
+  onClaim: () => void;
+}) {
   return (
     <View style={[styles.rewardCard, !available && styles.rewardCardLocked]}>
       <View style={styles.rewardIcon}>
-        <MaterialCommunityIcons name={reward.icon} size={22} color={available ? '#ffffff' : '#6b7280'} />
+        <MaterialCommunityIcons name={claimed ? 'check' : reward.icon} size={22} color={available || claimed ? '#ffffff' : '#6b7280'} />
       </View>
       <View style={styles.rewardCopy}>
         <Text style={styles.rewardPartner}>{reward.partner}</Text>
         <Text style={styles.rewardTitle}>{reward.title}</Text>
         <Text style={styles.rewardBenefit}>{reward.benefit} · {reward.note}</Text>
       </View>
-      <View style={[styles.rewardCost, available && styles.rewardCostAvailable]}>
-        <Text style={[styles.rewardCostText, available && styles.rewardCostTextAvailable]}>
-          {available ? 'Забрать' : `${reward.cost}`}
+      <Pressable
+        style={[styles.rewardCost, (available || claimed) && styles.rewardCostAvailable]}
+        disabled={!available || claimed}
+        onPress={onClaim}
+      >
+        <Text style={[styles.rewardCostText, (available || claimed) && styles.rewardCostTextAvailable]}>
+          {claimed ? 'Выдан' : available ? 'Забрать' : `${reward.cost}`}
         </Text>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -1409,7 +1587,15 @@ function ReportRow({ report, selected }: { report: Report; selected?: boolean })
   );
 }
 
-function ReportDetail({ report }: { report: Report }) {
+function ReportDetail({
+  report,
+  isConfirmed,
+  onConfirmReport,
+}: {
+  report: Report;
+  isConfirmed: boolean;
+  onConfirmReport: (report: Report) => void;
+}) {
   return (
     <View style={styles.detailPanel}>
       <View style={styles.detailHero}>
@@ -1439,9 +1625,13 @@ function ReportDetail({ report }: { report: Report }) {
       </View>
       <View style={styles.detailActions}>
         {report.canConfirm ? (
-          <Pressable style={styles.detailActionButton}>
+          <Pressable
+            style={[styles.detailActionButton, isConfirmed && styles.detailActionButtonDone]}
+            disabled={isConfirmed}
+            onPress={() => onConfirmReport(report)}
+          >
             <MaterialCommunityIcons name="check-circle-outline" size={17} color="#141414" />
-            <Text style={styles.detailActionText}>Подтвердить</Text>
+            <Text style={styles.detailActionText}>{isConfirmed ? 'Подтверждено' : 'Подтвердить'}</Text>
           </Pressable>
         ) : null}
         {report.canDisputeResolution ? (
@@ -2828,6 +3018,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
+  detailActionButtonDone: {
+    backgroundColor: '#E8F5F3',
+  },
   detailActionText: {
     color: '#141414',
     fontSize: 13,
@@ -2873,6 +3066,33 @@ const styles = StyleSheet.create({
     lineHeight: 54,
     fontSize: 22,
     fontWeight: '800',
+  },
+  claimCodePanel: {
+    borderRadius: 18,
+    backgroundColor: '#0A3D44',
+    padding: 16,
+    marginBottom: 12,
+  },
+  claimCodeLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  claimCodeValue: {
+    color: '#ffffff',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+    marginTop: 4,
+    letterSpacing: 0,
+  },
+  claimCodeText: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 6,
+    fontWeight: '700',
   },
   trustPanel: {
     borderRadius: 18,

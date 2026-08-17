@@ -34,6 +34,7 @@ http://localhost:4000/admin
 - `POST /api/reports/:id/confirm` - confirm a visible report from the map
 - `GET /api/statuses` - mobile/admin status dictionary
 - `GET /api/rewards` - reward catalog
+- `POST /api/rewards/:id/claim` - issue a one-time demo reward code
 - `GET /api/me/summary` - demo profile balance and reward availability
 - `GET /api/admin/reports` - admin queue
 - `GET /api/admin/reports/:id` - admin report with event history

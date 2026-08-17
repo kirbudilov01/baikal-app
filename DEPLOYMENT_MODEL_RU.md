@@ -19,6 +19,7 @@ Backend уже умеет:
 - `GET /api/statuses` - справочник статусов.
 - `POST /api/reports/:id/confirm` - подтвердить проблему на карте.
 - `GET /api/rewards` - каталог бонусов.
+- `POST /api/rewards/:id/claim` - выдать одноразовый демо-код бонуса.
 - `GET /api/me/summary` - демо-баланс, статистика и доступные бонусы.
 - `GET /api/admin/reports` - очередь админки.
 - `GET /api/admin/reports/:id` - детали заявки.

@@ -104,6 +104,7 @@ const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
+const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
 const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
@@ -472,7 +473,10 @@ export default function App() {
                 try {
                   const payload = await requestJson<{ report: ApiReport }>(`/api/admin/reports/${report.publicId}/status`, {
                     method: 'POST',
-                    headers: { 'x-admin-id': 'admin:mobile-web' },
+                    headers: {
+                      'x-admin-id': 'admin:mobile-web',
+                      ...(ADMIN_TOKEN ? { 'x-admin-token': ADMIN_TOKEN } : {}),
+                    },
                     body: JSON.stringify({ status: statusCode }),
                   });
                   const updated = reportFromApi(payload.report);

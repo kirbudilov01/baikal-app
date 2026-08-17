@@ -9,6 +9,12 @@ cd backend
 npm start
 ```
 
+For local admin testing without a token:
+
+```bash
+ALLOW_UNSAFE_LOCAL_ADMIN=true npm start
+```
+
 Health check:
 
 ```bash
@@ -23,6 +29,23 @@ curl http://localhost:4000/health
 - `GET /api/admin/reports` - admin queue
 - `GET /api/admin/reports/:id` - admin report with event history
 - `POST /api/admin/reports/:id/status` - admin status transition
+
+Admin endpoints require `ADMIN_TOKEN` in production:
+
+```bash
+curl http://localhost:4000/api/admin/reports \
+  -H "x-admin-token: $ADMIN_TOKEN"
+```
+
+## Environment
+
+See `.env.example`.
+
+- `NODE_ENV=production` - enables production assumptions.
+- `ADMIN_TOKEN` - required for `/api/admin/*` unless unsafe local mode is enabled.
+- `ALLOW_UNSAFE_LOCAL_ADMIN=true` - local development only.
+- `ALLOWED_ORIGINS` - comma-separated CORS allowlist.
+- `MAX_BODY_BYTES` - JSON body size limit.
 
 ## Status Flow
 
@@ -40,5 +63,5 @@ a separate future escalation flow.
 
 This backend uses a local JSON file for development speed. For production, keep the
 same API/status machine but replace storage with Postgres, object storage for
-photos, auth, audit logs, rate limiting, monitoring, backups, and CI/CD.
-
+photos, full admin auth/RBAC, audit logs, rate limiting, monitoring, backups,
+and CI/CD.

@@ -8,7 +8,7 @@ Current bundle id: `ru.newpeople.baikal`
 
 Current technical status:
 
-- Expo SDK 56 app.
+- Expo SDK 57 app.
 - `expo-doctor` must pass before every release.
 - iOS permissions are declared for camera, photo library, and location.
 - EAS build and submit scripts are available in `package.json`.

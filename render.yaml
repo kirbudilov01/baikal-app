@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: baikal-backend
+    runtime: node
+    rootDir: backend
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ALLOW_UNSAFE_LOCAL_ADMIN
+        value: "false"
+      - key: MAX_BODY_BYTES
+        value: "1000000"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true

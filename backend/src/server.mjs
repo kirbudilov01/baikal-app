@@ -4,22 +4,54 @@ import { readDb, updateDb } from './store.mjs';
 import { assertCanTransition, createDomainError, publicStatus, reportStatuses } from './status-machine.mjs';
 
 const port = Number(process.env.PORT ?? 4000);
+const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 1_000_000);
+const adminToken = process.env.ADMIN_TOKEN ?? '';
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowUnsafeLocalAdmin = process.env.ALLOW_UNSAFE_LOCAL_ADMIN === 'true' || process.env.NODE_ENV !== 'production';
+
+function applyCors(request, response) {
+  const origin = request.headers.origin;
+  const allowedOrigin = allowedOrigins.includes(String(origin)) ? origin : allowedOrigins[0];
+
+  response.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  response.setHeader('access-control-allow-headers', 'content-type,x-admin-id,x-admin-token,authorization');
+  response.setHeader('vary', 'origin');
+  response.setHeader('access-control-allow-origin', allowedOrigin || '*');
+}
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
-    'access-control-allow-headers': 'content-type,x-admin-id',
   });
   response.end(JSON.stringify(payload));
 }
 
 async function readJson(request) {
   const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > maxBodyBytes) {
+      throw createDomainError(413, 'Request body is too large');
+    }
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function requireAdmin(request) {
+  if (!adminToken && allowUnsafeLocalAdmin) return request.headers['x-admin-id'] || 'admin:local';
+  if (!adminToken) throw createDomainError(500, 'Admin token is not configured');
+
+  const bearer = String(request.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  const token = request.headers['x-admin-token'] || bearer;
+  if (token !== adminToken) throw createDomainError(401, 'Admin authorization required');
+
+  return request.headers['x-admin-id'] || 'admin:api';
 }
 
 function publicReport(report) {
@@ -118,6 +150,7 @@ function validateReportPayload(payload) {
 }
 
 async function route(request, response) {
+  applyCors(request, response);
   const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
 
   if (request.method === 'OPTIONS') {
@@ -189,7 +222,7 @@ async function route(request, response) {
   if (request.method === 'POST' && statusMatch) {
     const reportId = statusMatch[1];
     const payload = await readJson(request);
-    const adminId = request.headers['x-admin-id'] || 'admin:local';
+    const adminId = requireAdmin(request);
 
     const nextDb = await updateDb((db) => {
       const index = db.reports.findIndex((report) => report.id === reportId);
@@ -233,6 +266,7 @@ async function route(request, response) {
 
   const adminReportMatch = url.pathname.match(/^\/api\/admin\/reports\/([^/]+)$/);
   if (request.method === 'GET' && adminReportMatch) {
+    requireAdmin(request);
     const db = await readDb();
     const report = db.reports.find((item) => item.id === adminReportMatch[1]);
     if (!report) throw createDomainError(404, 'Report not found');
@@ -241,6 +275,7 @@ async function route(request, response) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/admin/reports') {
+    requireAdmin(request);
     const db = await readDb();
     sendJson(response, 200, {
       summary: reportSummary(db.reports),

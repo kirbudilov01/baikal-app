@@ -24,7 +24,7 @@ Yes, with safe credential handling:
 
 Present:
 
-- Expo SDK 56 app.
+- Expo SDK 57 app.
 - iOS bundle id: `ru.newpeople.baikal`.
 - Camera, gallery, and location permission strings.
 - Report creation flow with local fallback.
@@ -32,11 +32,13 @@ Present:
 - Map interaction prototype.
 - Rewards/leaf points prototype.
 - Admin tab inside the app for status changes.
+- Admin tab is hidden by default and can be enabled only for internal builds.
 - Draft persistence with AsyncStorage.
+- API base URL is configured through `EXPO_PUBLIC_API_BASE_URL`.
 
 Not production-ready:
 
-- Admin is visible in the same app shell and has no real role-based auth.
+- Admin is still implemented inside the app shell and should become a separate protected admin surface before public release.
 - Report photos are sent/stored as local URI/string, not uploaded to durable object storage.
 - Map is not backed by a real provider/geocoder/router.
 - No push notifications for status changes.
@@ -62,7 +64,7 @@ Present:
 Not production-ready:
 
 - Local JSON file storage only.
-- No authentication/authorization.
+- Minimal admin token guard exists for `/api/admin/*`; full auth/RBAC is still missing.
 - No admin RBAC.
 - No database migrations.
 - No object storage for photos.
@@ -72,8 +74,8 @@ Not production-ready:
 - No backups.
 - No deployment descriptor.
 - No privacy/data retention controls.
-- No CORS allowlist.
-- No request size limits for photo payloads.
+- CORS allowlist exists through `ALLOWED_ORIGINS`; production values must be configured.
+- JSON request size limit exists through `MAX_BODY_BYTES`; photo storage still needs a real upload flow.
 
 ### Admin
 
@@ -86,8 +88,8 @@ Present:
 
 Not production-ready:
 
-- Should be separated from public mobile build or protected behind secure admin auth.
-- No login.
+- Hidden from public navigation unless `EXPO_PUBLIC_ADMIN_ENABLED=true`.
+- Protected only by an internal-build token flow for now; no real login.
 - No roles.
 - No admin comments/reasons required for rejection.
 - No photo review/fullscreen evidence view.
@@ -196,14 +198,12 @@ Action:
 
 ## Recommended next implementation sprint
 
-1. Hide admin tab from public mobile navigation unless `EXPO_PUBLIC_ADMIN_ENABLED=true`.
-2. Add in-app legal/support screen.
-3. Add backend auth guard for `/api/admin/*`.
-4. Add request size limit and CORS allowlist.
-5. Add backend deployment config.
-6. Add production API base URL env handling.
-7. Add photo upload abstraction.
-8. Add App Store screenshot capture script/checklist.
+1. Deploy backend and configure `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, and `MAX_BODY_BYTES`.
+2. Add production privacy/support URLs and verify they open in app.
+3. Add real admin login/RBAC or move admin to a separate protected web surface.
+4. Add photo upload abstraction and object storage.
+5. Add real map provider or clearly limit map to internal TestFlight.
+6. Add App Store screenshot capture script/checklist.
 
 ## Safe upload workflow
 

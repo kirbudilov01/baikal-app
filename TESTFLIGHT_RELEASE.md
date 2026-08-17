@@ -34,8 +34,8 @@ Set production-like app env first:
 ```bash
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://YOUR_BACKEND_URL
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_PRIVACY_URL
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_SUPPORT_URL
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
 ```
 
 Run release checks first:
@@ -61,10 +61,11 @@ After upload, App Store Connect usually needs several minutes to process the bui
 ## What must be real before external testers
 
 - A deployed production backend URL if reports should persist outside the device.
-- Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`.
+- Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`.
 - Real map provider or a clearly marked interactive prototype map.
 - Privacy Policy URL.
 - Support/contact URL.
+- Public data deletion page: `https://YOUR_BACKEND_URL/data-deletion`.
 - App screenshots for iPhone sizes.
 - App Store review notes explaining camera, photo, and location usage.
 

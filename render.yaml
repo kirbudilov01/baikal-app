@@ -16,5 +16,7 @@ services:
         value: "1000000"
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
       - key: ADMIN_TOKEN
         generateValue: true

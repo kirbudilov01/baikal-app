@@ -6,11 +6,39 @@ import { assertCanTransition, createDomainError, publicStatus, reportStatuses } 
 const port = Number(process.env.PORT ?? 4000);
 const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 1_000_000);
 const adminToken = process.env.ADMIN_TOKEN ?? '';
+const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@example.com';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const allowUnsafeLocalAdmin = process.env.ALLOW_UNSAFE_LOCAL_ADMIN === 'true' || process.env.NODE_ENV !== 'production';
+
+const rewardCatalog = [
+  {
+    id: 'tea-by-the-lake',
+    title: 'Чай у озера',
+    partner: 'Кафе «У Озера»',
+    cost: 350,
+    benefit: 'Напиток в подарок',
+    note: 'Можно забрать сегодня',
+  },
+  {
+    id: 'bike-rental',
+    title: 'Прокат велосипеда',
+    partner: 'Листвянка Bike',
+    cost: 800,
+    benefit: '-20% на прогулку',
+    note: '2 часа по берегу',
+  },
+  {
+    id: 'eco-hotel',
+    title: 'Эко-отель',
+    partner: 'Байкал Дом',
+    cost: 1200,
+    benefit: '-10% на ночь',
+    note: 'Для выходных',
+  },
+];
 
 function applyCors(request, response) {
   const origin = request.headers.origin;
@@ -104,6 +132,24 @@ function reportSummary(reports) {
     resolved: reports.filter((report) => report.status === 'resolved').length,
     byStatus,
     byCategory,
+  };
+}
+
+function profileSummary(reports) {
+  const baseBalance = 1250;
+  const earned = reports.reduce((sum, report) => sum + report.points, 0);
+  const resolved = reports.filter((report) => report.status === 'resolved').length;
+  const confirmations = reports.reduce((sum, report) => sum + report.confirmations, 0);
+  const balance = baseBalance + earned;
+
+  return {
+    id: 'demo-profile',
+    balance,
+    earned,
+    resolved,
+    confirmations,
+    availableRewards: rewardCatalog.filter((reward) => balance >= reward.cost).map((reward) => reward.id),
+    nextReward: rewardCatalog.find((reward) => balance < reward.cost) ?? null,
   };
 }
 
@@ -519,6 +565,161 @@ function adminPageHtml() {
 </html>`;
 }
 
+function legalPageHtml({ title, subtitle, sections }) {
+  const sectionHtml = sections
+    .map(
+      (section) => `
+      <section>
+        <h2>${section.title}</h2>
+        <p>${section.text}</p>
+      </section>`,
+    )
+    .join('');
+
+  return `<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title} | Байкал в наших руках</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8f7;
+      --surface: #ffffff;
+      --text: #151515;
+      --muted: #667085;
+      --teal: #008f9a;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    main {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 44px 0 64px;
+    }
+    .hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 28px;
+      margin-bottom: 14px;
+    }
+    .eyebrow {
+      color: var(--teal);
+      font-size: 13px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    h1 {
+      margin: 8px 0 10px;
+      font-size: clamp(30px, 6vw, 46px);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+    .subtitle { color: var(--muted); font-size: 17px; font-weight: 700; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px 22px;
+      margin-top: 10px;
+    }
+    h2 { margin: 0 0 8px; font-size: 19px; line-height: 1.2; }
+    p { margin: 0; color: var(--muted); }
+    a { color: var(--teal); font-weight: 800; }
+    footer { color: var(--muted); margin-top: 18px; font-size: 13px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="hero">
+      <div class="eyebrow">Байкал в наших руках</div>
+      <h1>${title}</h1>
+      <div class="subtitle">${subtitle}</div>
+    </div>
+    ${sectionHtml}
+    <footer>Дата обновления: ${new Intl.DateTimeFormat('ru-RU').format(new Date())}. Контакт: <a href="mailto:${supportEmail}">${supportEmail}</a></footer>
+  </main>
+</body>
+</html>`;
+}
+
+function privacyPageHtml() {
+  return legalPageHtml({
+    title: 'Политика конфиденциальности',
+    subtitle: 'Мы собираем только данные, необходимые для обработки экологических обращений.',
+    sections: [
+      {
+        title: 'Какие данные обрабатываются',
+        text: 'Приложение может обрабатывать описание проблемы, выбранную категорию, координаты точки, фотографию обращения и техническую информацию, необходимую для стабильной работы сервиса.',
+      },
+      {
+        title: 'Зачем это нужно',
+        text: 'Данные используются для модерации обращений, передачи информации ответственным службам, отображения статусов, начисления листиков и предотвращения дублей.',
+      },
+      {
+        title: 'Публичность',
+        text: 'Контакты пользователя не отображаются публично. В публичных списках показываются только обезличенные сведения о проблеме, статусе и месте.',
+      },
+      {
+        title: 'Хранение и удаление',
+        text: `Запрос на удаление данных можно отправить на ${supportEmail}. Перед публикацией в App Store укажите здесь юридически проверенные сроки хранения и реквизиты оператора.`,
+      },
+    ],
+  });
+}
+
+function supportPageHtml() {
+  return legalPageHtml({
+    title: 'Поддержка',
+    subtitle: 'Поможем с заявками, статусами, баллами и доступом к приложению.',
+    sections: [
+      {
+        title: 'Как связаться',
+        text: `Напишите на ${supportEmail}. В сообщении укажите номер заявки, устройство и что именно не получилось сделать.`,
+      },
+      {
+        title: 'Срочные ситуации',
+        text: 'Если есть опасность для людей, сначала обращайтесь в экстренные службы. Приложение помогает фиксировать и сопровождать экологические обращения, но не заменяет экстренный вызов.',
+      },
+      {
+        title: 'Администрирование',
+        text: 'Модераторы видят обращения в админ-панели, меняют статусы и добавляют комментарии по ходу работы.',
+      },
+    ],
+  });
+}
+
+function dataDeletionPageHtml() {
+  return legalPageHtml({
+    title: 'Удаление данных',
+    subtitle: 'Пользователь может запросить удаление своих обращений и связанных данных.',
+    sections: [
+      {
+        title: 'Что отправить',
+        text: `Напишите на ${supportEmail}: номер заявки, примерную дату отправки и какие данные нужно удалить.`,
+      },
+      {
+        title: 'Что удаляется',
+        text: 'После проверки запроса удаляются или обезличиваются описание, фотография, координаты и история действий, если хранение этих данных больше не требуется по закону.',
+      },
+      {
+        title: 'Срок обработки',
+        text: 'Для релизной версии срок должен быть закреплен юридически. Для тестового запуска используйте эту страницу как рабочий публичный процесс удаления данных.',
+      },
+    ],
+  });
+}
+
 function createReportId(existingReports) {
   const numericIds = existingReports
     .map((report) => Number(String(report.id).replace('BR-', '')))
@@ -569,8 +770,34 @@ async function route(request, response) {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/privacy') {
+    sendHtml(response, 200, privacyPageHtml());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/support') {
+    sendHtml(response, 200, supportPageHtml());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/data-deletion') {
+    sendHtml(response, 200, dataDeletionPageHtml());
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/statuses') {
     sendJson(response, 200, { statuses: Object.entries(reportStatuses).map(([code]) => publicStatus(code)) });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/rewards') {
+    sendJson(response, 200, { rewards: rewardCatalog });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/me/summary') {
+    const db = await readDb();
+    sendJson(response, 200, { profile: profileSummary(db.reports) });
     return;
   }
 
@@ -621,6 +848,51 @@ async function route(request, response) {
     });
 
     sendJson(response, 201, { report: publicReport(nextDb.reports[0]) });
+    return;
+  }
+
+  const confirmMatch = url.pathname.match(/^\/api\/reports\/([^/]+)\/confirm$/);
+  if (request.method === 'POST' && confirmMatch) {
+    const reportId = confirmMatch[1];
+
+    const nextDb = await updateDb((db) => {
+      const index = db.reports.findIndex((report) => report.id === reportId);
+      if (index === -1) throw createDomainError(404, 'Report not found');
+
+      const current = db.reports[index];
+      if (reportStatuses[current.status].terminal) {
+        throw createDomainError(409, 'Report is already closed');
+      }
+
+      const now = new Date().toISOString();
+      const updated = {
+        ...current,
+        confirmations: current.confirmations + 1,
+        updatedAt: now,
+      };
+
+      const reports = [...db.reports];
+      reports[index] = updated;
+
+      return {
+        reports,
+        events: [
+          {
+            id: randomUUID(),
+            reportId,
+            type: 'confirmed',
+            status: current.status,
+            actor: 'mobile:user',
+            comment: 'Пользователь подтвердил, что видел проблему на месте.',
+            createdAt: now,
+          },
+          ...db.events,
+        ],
+      };
+    });
+
+    const report = nextDb.reports.find((item) => item.id === reportId);
+    sendJson(response, 200, { report: publicReport(report) });
     return;
   }
 

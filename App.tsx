@@ -428,6 +428,25 @@ export default function App() {
     setActiveTab('success');
   };
 
+  const confirmReport = async (report: Report) => {
+    try {
+      const payload = await requestJson<{ report: ApiReport }>(`/api/reports/${report.publicId}/confirm`, {
+        method: 'POST',
+      });
+      const updated = reportFromApi(payload.report);
+      setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
+      setSyncMessage(`Подтверждение ${updated.publicId} учтено`);
+    } catch {
+      const updated = {
+        ...report,
+        confirmations: report.confirmations + 1,
+        evidenceScore: Math.min(98, report.evidenceScore + 6),
+      };
+      setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
+      setSyncMessage('Backend недоступен: подтверждение учтено локально');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
@@ -436,7 +455,7 @@ export default function App() {
           {activeTab === 'home' && (
             <HomeScreen balance={balance} reports={reports} onReport={() => setActiveTab('report')} onOpenReports={() => setActiveTab('messages')} />
           )}
-          {activeTab === 'map' && <MapScreen reports={reports} />}
+          {activeTab === 'map' && <MapScreen reports={reports} onConfirmReport={confirmReport} />}
           {activeTab === 'report' && (
             <ReportScreen
               reports={reports}
@@ -809,7 +828,7 @@ function MessagesScreen({
   );
 }
 
-function MapScreen({ reports }: { reports: Report[] }) {
+function MapScreen({ reports, onConfirmReport }: { reports: Report[]; onConfirmReport: (report: Report) => void }) {
   const [mapFilter, setMapFilter] = useState('Все');
   const [confirmedReportId, setConfirmedReportId] = useState<number | null>(null);
   const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
@@ -876,15 +895,22 @@ function MapScreen({ reports }: { reports: Report[] }) {
             <View style={styles.rowCopy}>
               <Text style={styles.mapSheetMeta}>{nearestReport.publicId} · {selectedPoint.label}</Text>
               <Text style={styles.mapSheetTitle}>{nearestReport.title}</Text>
-              <Text style={styles.mapSheetText}>{nearestReport.confirmations + (isConfirmed ? 1 : 0)} подтверждений · {nearestReport.nextActionLabel}</Text>
+              <Text style={styles.mapSheetText}>{nearestReport.confirmations} подтверждений · {nearestReport.nextActionLabel}</Text>
             </View>
             <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
               <Text style={[styles.statusPillText, { color: palette.text }]}>{nearestReport.status}</Text>
             </View>
           </View>
-          <Pressable style={[styles.mapConfirmButton, isConfirmed && styles.mapConfirmButtonDone]} onPress={() => setConfirmedReportId(nearestReport.id)}>
+          <Pressable
+            style={[styles.mapConfirmButton, isConfirmed && styles.mapConfirmButtonDone]}
+            disabled={isConfirmed || !nearestReport.canConfirm}
+            onPress={() => {
+              setConfirmedReportId(nearestReport.id);
+              onConfirmReport(nearestReport);
+            }}
+          >
             <Text style={[styles.mapConfirmButtonText, isConfirmed && styles.mapConfirmButtonTextDone]}>
-              {isConfirmed ? 'Спасибо, учли' : 'Я видел это место'}
+              {isConfirmed ? 'Спасибо, учли' : nearestReport.canConfirm ? 'Я видел это место' : 'Заявка закрыта'}
             </Text>
           </Pressable>
         </View>

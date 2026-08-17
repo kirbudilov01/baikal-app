@@ -17,10 +17,16 @@ Backend уже умеет:
 - `GET /api/reports` - список заявок для приложения.
 - `POST /api/reports` - создать заявку.
 - `GET /api/statuses` - справочник статусов.
+- `POST /api/reports/:id/confirm` - подтвердить проблему на карте.
+- `GET /api/rewards` - каталог бонусов.
+- `GET /api/me/summary` - демо-баланс, статистика и доступные бонусы.
 - `GET /api/admin/reports` - очередь админки.
 - `GET /api/admin/reports/:id` - детали заявки.
 - `POST /api/admin/reports/:id/status` - сменить статус.
 - `GET /admin` - web-админка.
+- `GET /privacy` - публичная страница политики конфиденциальности.
+- `GET /support` - публичная страница поддержки.
+- `GET /data-deletion` - публичный процесс удаления данных.
 
 Админка защищена `ADMIN_TOKEN`.
 
@@ -49,8 +55,8 @@ Backend уже умеет:
 ```bash
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://YOUR_BACKEND_URL
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_PRIVACY_URL
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_SUPPORT_URL
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
 ```
 
 Для внутренней админ-сборки можно включить:
@@ -81,6 +87,7 @@ ALLOWED_ORIGINS=https://kirbudilov01.github.io,https://YOUR_DOMAIN
 MAX_BODY_BYTES=1000000
 NODE_ENV=production
 ALLOW_UNSAFE_LOCAL_ADMIN=false
+SUPPORT_EMAIL=реальная_почта_поддержки
 ```
 
 4. Нажать Apply.
@@ -97,6 +104,23 @@ https://YOUR_BACKEND_URL/admin
 ```
 
 7. Ввести `ADMIN_TOKEN`.
+8. Проверить публичные страницы:
+
+```text
+https://YOUR_BACKEND_URL/privacy
+https://YOUR_BACKEND_URL/support
+https://YOUR_BACKEND_URL/data-deletion
+```
+
+## Временный Apple Developer account
+
+Можно собирать TestFlight через временный аккаунт разработчика, но важно:
+
+- не передавать пароль/2FA коды в чат или репозиторий;
+- лучше добавить нужный Apple ID в App Store Connect как пользователя команды;
+- EAS credentials привязаны к Apple Team, поэтому при переезде на другой аккаунт часть signing-настроек придется пересоздать;
+- Bundle ID `ru.newpeople.baikal` должен быть свободен/закреплен в той команде, через которую собираем;
+- для публичного релиза права на приложение и аккаунт должны быть у реального владельца проекта, иначе потом перенос будет административной задачей.
 
 ## Можно ли потом переехать на другой сервер?
 
@@ -116,6 +140,8 @@ EXPO_PUBLIC_API_BASE_URL
 - Privacy Policy URL.
 - Support URL.
 - Рабочая админка.
+- Рабочее подтверждение заявок на карте.
+- Серверный каталог бонусов.
 - Фото загружаются не как локальный URI, а в storage.
 - База не JSON-файл, а durable DB.
 - Админка не зависит от публичного токена в приложении.

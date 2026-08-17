@@ -146,6 +146,12 @@ function requireAdmin(request) {
   return request.headers['x-admin-id'] || 'admin:api';
 }
 
+function profileIdFromRequest(request) {
+  const raw = String(request.headers['x-profile-id'] || '').trim();
+  if (!raw) return 'demo-profile';
+  return raw.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) || 'demo-profile';
+}
+
 function publicReport(report) {
   const status = publicStatus(report.status);
   return {
@@ -169,6 +175,7 @@ function publicReport(report) {
 function adminReport(report, events) {
   return {
     ...publicReport(report),
+    profileId: report.profileId,
     adminAction: reportStatuses[report.status].adminAction,
     events: events.filter((event) => event.reportId === report.id),
   };
@@ -192,25 +199,26 @@ function reportSummary(reports) {
   };
 }
 
-function profileSummary(reports, rewardClaims = []) {
+function profileSummary(reports, rewardClaims = [], profileId = 'demo-profile') {
   const baseBalance = 1250;
-  const earned = reports.reduce((sum, report) => sum + report.points, 0);
+  const ownReports = reports.filter((report) => report.profileId === profileId || (!report.profileId && profileId === 'demo-profile'));
+  const earned = ownReports.reduce((sum, report) => sum + report.points, 0);
   const spent = rewardClaims
-    .filter((claim) => claim.profileId === 'demo-profile' && claim.status === 'issued')
+    .filter((claim) => claim.profileId === profileId && claim.status === 'issued')
     .reduce((sum, claim) => sum + claim.pointsSpent, 0);
-  const resolved = reports.filter((report) => report.status === 'resolved').length;
-  const confirmations = reports.reduce((sum, report) => sum + report.confirmations, 0);
+  const resolved = ownReports.filter((report) => report.status === 'resolved').length;
+  const confirmations = ownReports.reduce((sum, report) => sum + report.confirmations, 0);
   const balance = Math.max(0, baseBalance + earned - spent);
 
   return {
-    id: 'demo-profile',
+    id: profileId,
     balance,
     earned,
     spent,
     resolved,
     confirmations,
     availableRewards: rewardCatalog.filter((reward) => balance >= reward.cost).map((reward) => reward.id),
-    claimedRewards: rewardClaims.filter((claim) => claim.profileId === 'demo-profile'),
+    claimedRewards: rewardClaims.filter((claim) => claim.profileId === profileId),
     nextReward: rewardCatalog.find((reward) => balance < reward.cost) ?? null,
   };
 }
@@ -402,6 +410,20 @@ function adminPageHtml() {
     }
     .detail h2 { margin: 0 0 4px; font-size: 22px; line-height: 27px; }
     .detail-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
+    .photo {
+      width: 100%;
+      max-height: 240px;
+      object-fit: cover;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      margin-top: 12px;
+      background: var(--bg);
+    }
+    .link {
+      color: var(--teal);
+      font-weight: 850;
+      text-decoration: none;
+    }
     .field { margin-top: 10px; }
     .label { display: block; color: var(--muted); font-size: 12px; font-weight: 850; margin-bottom: 5px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -541,12 +563,16 @@ function adminPageHtml() {
       const events = (report.events || []).map((event) =>
         '<div class="event">[' + formatDate(event.createdAt) + '] ' + event.actor + ': ' + (event.comment || event.status || event.type) + '</div>'
       ).join('') || '<div class="hint">Истории пока нет</div>';
+      const photo = report.photoUrl ? '<img class="photo" src="' + report.photoUrl + '" alt="Фото заявки" />' : '<div class="hint">Фото не приложено</div>';
+      const mapsUrl = 'https://maps.apple.com/?ll=' + report.latitude + ',' + report.longitude + '&q=' + encodeURIComponent(report.title);
 
       detail.innerHTML = '<div class="row"><div><div class="id">' + report.id + '</div><h2>' + report.title + '</h2>' +
         '<div class="meta">' + report.category + ' · ' + report.locationText + '</div></div>' +
         '<span class="pill">' + report.status.label + '</span></div>' +
+        '<div class="detail-section"><span class="label">Фото</span>' + photo + '</div>' +
         '<div class="detail-section"><span class="label">Описание</span><div>' + (report.description || 'Нет описания') + '</div></div>' +
-        '<div class="detail-section"><span class="label">Координаты</span><div>' + report.latitude + ', ' + report.longitude + '</div></div>' +
+        '<div class="detail-section"><span class="label">Профиль</span><div>' + (report.profileId || 'Неизвестно') + '</div></div>' +
+        '<div class="detail-section"><span class="label">Координаты</span><div>' + report.latitude + ', ' + report.longitude + ' · <a class="link" target="_blank" rel="noreferrer" href="' + mapsUrl + '">Открыть карту</a></div></div>' +
         '<div class="detail-section"><span class="label">Комментарий администратора</span><textarea id="comment" placeholder="Например: передано координатору района"></textarea>' +
         '<div class="actions">' + (actionButtons || '<span class="hint">Финальный статус, действий нет</span>') + '</div><div id="message"></div></div>' +
         '<div class="detail-section"><span class="label">История</span>' + events + '</div>';
@@ -933,7 +959,8 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/api/me/summary') {
     const db = await readDb();
-    sendJson(response, 200, { profile: profileSummary(db.reports, db.rewardClaims) });
+    const profileId = profileIdFromRequest(request);
+    sendJson(response, 200, { profile: profileSummary(db.reports, db.rewardClaims, profileId) });
     return;
   }
 
@@ -942,9 +969,10 @@ async function route(request, response) {
     const rewardId = rewardClaimMatch[1];
     const reward = rewardCatalog.find((item) => item.id === rewardId);
     if (!reward) throw createDomainError(404, 'Reward not found');
+    const profileId = profileIdFromRequest(request);
 
     const nextDb = await updateDb((db) => {
-      const summary = profileSummary(db.reports, db.rewardClaims);
+      const summary = profileSummary(db.reports, db.rewardClaims, profileId);
       const existingClaim = db.rewardClaims.find((claim) => claim.profileId === summary.id && claim.rewardId === rewardId);
       if (existingClaim) throw createDomainError(409, 'Reward is already claimed');
       if (summary.balance < reward.cost) throw createDomainError(409, 'Not enough points');
@@ -965,10 +993,10 @@ async function route(request, response) {
       };
     });
 
-    const claim = nextDb.rewardClaims.find((item) => item.rewardId === rewardId && item.profileId === 'demo-profile');
+    const claim = nextDb.rewardClaims.find((item) => item.rewardId === rewardId && item.profileId === profileId);
     sendJson(response, 201, {
       claim,
-      profile: profileSummary(nextDb.reports, nextDb.rewardClaims),
+      profile: profileSummary(nextDb.reports, nextDb.rewardClaims, profileId),
     });
     return;
   }
@@ -982,6 +1010,7 @@ async function route(request, response) {
   if (request.method === 'POST' && url.pathname === '/api/reports') {
     const payload = await readJson(request);
     validateReportPayload(payload);
+    const profileId = profileIdFromRequest(request);
 
     const nextDb = await updateDb((db) => {
       const now = new Date().toISOString();
@@ -998,6 +1027,7 @@ async function route(request, response) {
         points: 50,
         confirmations: 0,
         photoUrl: payload.photoUrl || null,
+        profileId,
         createdAt: now,
         updatedAt: now,
       };
@@ -1010,7 +1040,7 @@ async function route(request, response) {
             reportId: id,
             type: 'created',
             status: 'moderation',
-            actor: 'mobile:user',
+            actor: `mobile:${profileId}`,
             comment: 'Заявка создана из мобильного приложения.',
             createdAt: now,
           },

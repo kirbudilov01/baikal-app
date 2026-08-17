@@ -65,16 +65,26 @@ test('serves release-critical API, legal pages, and admin protection', async () 
 
     const claimed = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
       method: 'POST',
+      headers: { 'x-profile-id': 'device:test-a' },
     }).then((response) => response.json());
 
     assert.match(claimed.claim.code, /^BAIKAL-/);
+    assert.equal(claimed.profile.id, 'device:test-a');
     assert.equal(claimed.profile.claimedRewards.length, 1);
     assert.equal(claimed.profile.spent, rewards.rewards[0].cost);
 
     const repeatedClaim = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
       method: 'POST',
+      headers: { 'x-profile-id': 'device:test-a' },
     });
     assert.equal(repeatedClaim.status, 409);
+
+    const secondProfileClaim = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
+      method: 'POST',
+      headers: { 'x-profile-id': 'device:test-b' },
+    }).then((response) => response.json());
+    assert.equal(secondProfileClaim.profile.id, 'device:test-b');
+    assert.equal(secondProfileClaim.profile.claimedRewards.length, 1);
 
     const uploaded = await fetch(`${baseUrl}/api/uploads`, {
       method: 'POST',
@@ -95,7 +105,7 @@ test('serves release-critical API, legal pages, and admin protection', async () 
 
     const created = await fetch(`${baseUrl}/api/reports`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-profile-id': 'device:test-a' },
       body: JSON.stringify({
         title: 'Тестовая заявка',
         category: 'Мусор',
@@ -123,6 +133,7 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     }).then((response) => response.json());
 
     const adminReport = admin.reports.find((report) => report.id === created.report.id);
+    assert.equal(adminReport.profileId, 'device:test-a');
     assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
   });
 });

@@ -24,6 +24,7 @@ const seed = {
       photoUrl: null,
       createdAt: '2026-05-12T08:30:00.000Z',
       updatedAt: '2026-05-15T12:20:00.000Z',
+      profileId: 'seed-profile',
     },
     {
       id: 'BR-1018',
@@ -39,6 +40,7 @@ const seed = {
       photoUrl: null,
       createdAt: '2026-05-10T07:40:00.000Z',
       updatedAt: '2026-05-10T10:10:00.000Z',
+      profileId: 'seed-profile',
     },
   ],
   events: [
@@ -73,6 +75,7 @@ sqlite.exec(`
     points INTEGER NOT NULL DEFAULT 0,
     confirmations INTEGER NOT NULL DEFAULT 0,
     photo_url TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'demo-profile',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -105,6 +108,11 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_reward_claims_profile_id ON reward_claims(profile_id);
 `);
 
+const reportColumns = sqlite.prepare('PRAGMA table_info(reports)').all().map((column) => column.name);
+if (!reportColumns.includes('profile_id')) {
+  sqlite.prepare("ALTER TABLE reports ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'demo-profile'").run();
+}
+
 const insertReport = sqlite.prepare(`
   INSERT OR REPLACE INTO reports (
     id,
@@ -118,6 +126,7 @@ const insertReport = sqlite.prepare(`
     points,
     confirmations,
     photo_url,
+    profile_id,
     created_at,
     updated_at
   ) VALUES (
@@ -132,6 +141,7 @@ const insertReport = sqlite.prepare(`
     @points,
     @confirmations,
     @photoUrl,
+    @profileId,
     @createdAt,
     @updatedAt
   )
@@ -190,6 +200,7 @@ function rowToReport(row) {
     points: row.points,
     confirmations: row.confirmations,
     photoUrl: row.photo_url,
+    profileId: row.profile_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -234,7 +245,7 @@ function replaceDb(nextDb) {
   sqlite.prepare('DELETE FROM reward_claims').run();
   sqlite.prepare('DELETE FROM events').run();
   sqlite.prepare('DELETE FROM reports').run();
-  for (const report of nextDb.reports) insertReport.run(report);
+  for (const report of nextDb.reports) insertReport.run({ ...report, profileId: report.profileId ?? 'demo-profile' });
   for (const event of nextDb.events) insertEvent.run(event);
   for (const claim of nextDb.rewardClaims ?? []) insertRewardClaim.run(claim);
 }

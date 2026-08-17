@@ -151,6 +151,7 @@ const heroImage = require('./assets/baikal/hero-clean.png');
 const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
+const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
 const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
@@ -329,11 +330,13 @@ function rewardFromApi(reward: ApiReward): Reward {
   };
 }
 
-async function requestJson<T>(path: string, options?: RequestInit): Promise<T> {
+async function requestJson<T>(path: string, options?: RequestInit & { profileId?: string | null }): Promise<T> {
+  const { profileId, ...fetchOptions } = options ?? {};
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
+    ...fetchOptions,
     headers: {
       'content-type': 'application/json',
+      ...(profileId ? { 'x-profile-id': profileId } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -354,6 +357,10 @@ function inferImageContentType(uri: string) {
   return 'image/jpeg';
 }
 
+function createLocalProfileId() {
+  return `device:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function imageUriToBase64(uri: string) {
   const dataUrlMatch = uri.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
   if (dataUrlMatch) return dataUrlMatch[2];
@@ -369,6 +376,7 @@ export default function App() {
   const [reports, setReports] = useState(initialReports);
   const [rewardCatalog, setRewardCatalog] = useState(initialRewards);
   const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [lastClaim, setLastClaim] = useState<RewardClaim | null>(null);
   const [confirmedReportIds, setConfirmedReportIds] = useState<Set<string>>(new Set());
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
@@ -418,6 +426,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const loadProfile = async () => {
+      const storedProfileId = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
+      if (storedProfileId) {
+        setProfileId(storedProfileId);
+        return;
+      }
+
+      const nextProfileId = createLocalProfileId();
+      await AsyncStorage.setItem(PROFILE_STORAGE_KEY, nextProfileId);
+      setProfileId(nextProfileId);
+    };
+
+    loadProfile().catch(() => setProfileId('demo-profile'));
+  }, []);
+
+  useEffect(() => {
     if (!draftLoaded) return;
 
     AsyncStorage.setItem(
@@ -431,12 +455,13 @@ export default function App() {
   }, [activeTab]);
 
   const loadReportsFromApi = async () => {
+    if (!profileId) return;
     setIsSyncing(true);
     try {
       const [reportPayload, rewardsPayload, profilePayload] = await Promise.all([
-        requestJson<{ reports: ApiReport[] }>('/api/reports'),
-        requestJson<{ rewards: ApiReward[] }>('/api/rewards'),
-        requestJson<{ profile: ProfileSummary }>('/api/me/summary'),
+        requestJson<{ reports: ApiReport[] }>('/api/reports', { profileId }),
+        requestJson<{ rewards: ApiReward[] }>('/api/rewards', { profileId }),
+        requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId }),
       ]);
       const apiReports = reportPayload.reports.map(reportFromApi);
       setReports(apiReports.length > 0 ? apiReports : initialReports);
@@ -453,7 +478,7 @@ export default function App() {
 
   useEffect(() => {
     loadReportsFromApi();
-  }, []);
+  }, [profileId]);
 
   const clearDraft = () => {
     setSelectedCategory(categories[0].label);
@@ -501,12 +526,14 @@ export default function App() {
   const submitReport = async () => {
     const localReport = buildLocalReport();
     let nextReport = localReport;
+    const activeProfileId = profileId ?? 'demo-profile';
 
     try {
       let uploadedPhotoUrl = pickedImage;
       if (pickedImage && !pickedImage.startsWith('http')) {
         const uploadPayload = await requestJson<{ upload: ApiUpload }>('/api/uploads', {
           method: 'POST',
+          profileId: activeProfileId,
           body: JSON.stringify({
             contentType: inferImageContentType(pickedImage),
             dataBase64: await imageUriToBase64(pickedImage),
@@ -517,6 +544,7 @@ export default function App() {
 
       const payload = await requestJson<{ report: ApiReport }>('/api/reports', {
         method: 'POST',
+        profileId: activeProfileId,
         body: JSON.stringify({
           title: localReport.title,
           category: localReport.category,
@@ -534,7 +562,7 @@ export default function App() {
     }
 
     setReports([nextReport, ...reports]);
-    requestJson<{ profile: ProfileSummary }>('/api/me/summary')
+    requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId })
       .then((payload) => setProfileSummary(payload.profile))
       .catch(() => undefined);
     setSubmittedReport(nextReport);
@@ -546,14 +574,16 @@ export default function App() {
   const confirmReport = async (report: Report) => {
     if (confirmedReportIds.has(report.publicId) || !report.canConfirm) return;
     setConfirmedReportIds((items) => new Set(items).add(report.publicId));
+    const activeProfileId = profileId ?? 'demo-profile';
 
     try {
       const payload = await requestJson<{ report: ApiReport }>(`/api/reports/${report.publicId}/confirm`, {
         method: 'POST',
+        profileId: activeProfileId,
       });
       const updated = reportFromApi(payload.report);
       setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
-      requestJson<{ profile: ProfileSummary }>('/api/me/summary')
+      requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId })
         .then((summaryPayload) => setProfileSummary(summaryPayload.profile))
         .catch(() => undefined);
       setSyncMessage(`Подтверждение ${updated.publicId} учтено`);
@@ -569,9 +599,11 @@ export default function App() {
   };
 
   const claimReward = async (reward: Reward) => {
+    const activeProfileId = profileId ?? 'demo-profile';
     try {
       const payload = await requestJson<{ claim: RewardClaim; profile: ProfileSummary }>(`/api/rewards/${reward.id}/claim`, {
         method: 'POST',
+        profileId: activeProfileId,
       });
       setProfileSummary(payload.profile);
       setLastClaim(payload.claim);

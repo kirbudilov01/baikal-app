@@ -56,6 +56,10 @@ curl http://localhost:4000/api/admin/reports \
 
 The browser admin panel stores the token in local browser storage. Use it only on trusted devices.
 
+Mobile endpoints accept `x-profile-id`. The app generates and stores this local
+device profile automatically, so TestFlight users have separate balances and
+reward claims without a login screen.
+
 ## Environment
 
 See `.env.example`.

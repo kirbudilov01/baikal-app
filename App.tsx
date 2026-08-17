@@ -10,6 +10,7 @@ import {
   Image,
   ImageSourcePropType,
   Linking,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -19,6 +20,7 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import MapView, { Callout, Marker, PROVIDER_GOOGLE, type MapPressEvent } from 'react-native-maps';
 
 type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile' | 'admin';
 type ReportStatus = 'На модерации' | 'Требует уточнения' | 'Передано' | 'В работе' | 'Решено' | 'Отклонено';
@@ -37,6 +39,11 @@ type MapPoint = LocationPoint & {
   left: `${number}%`;
 };
 
+type LocationChoice = LocationPoint & {
+  label: string;
+  area?: string;
+};
+
 type Category = {
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -51,6 +58,8 @@ type Report = {
   title: string;
   category: string;
   location: string;
+  latitude: number;
+  longitude: number;
   status: ReportStatus;
   statusCode: ReportStatusCode;
   nextStep: string;
@@ -180,6 +189,8 @@ const initialReports: Report[] = [
     title: 'Незаконная вырубка леса',
     category: 'Вырубка',
     location: 'Большое Голоустное',
+    latitude: 52.03582,
+    longitude: 105.40611,
     status: 'В работе',
     statusCode: 'in_progress',
     nextStep: 'Ответственные службы проверяют участок',
@@ -206,6 +217,8 @@ const initialReports: Report[] = [
     title: 'Мусор на берегу',
     category: 'Мусор',
     location: 'Листвянка',
+    latitude: 51.85347,
+    longitude: 104.86931,
     status: 'Передано',
     statusCode: 'transferred',
     nextStep: 'Заявка направлена координатору района',
@@ -231,6 +244,8 @@ const initialReports: Report[] = [
     title: 'Поврежденная тропа восстановлена',
     category: 'Природа',
     location: 'Ольхон',
+    latitude: 53.15912,
+    longitude: 107.38391,
     status: 'Решено',
     statusCode: 'resolved',
     nextStep: 'Листики начислены, заявка закрыта',
@@ -282,6 +297,8 @@ function reportFromApi(report: ApiReport): Report {
     title: report.title,
     category: report.category,
     location: report.locationText,
+    latitude: report.latitude,
+    longitude: report.longitude,
     status: report.status.label,
     statusCode: report.status.code,
     nextStep: report.nextStep || report.status.hint,
@@ -457,6 +474,8 @@ export default function App() {
       title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Обращение: ${category.label}`,
       category: category.label,
       location: pickedLocation ? pickedLocationLabel || 'Выбранная точка' : 'Иркутская область',
+      latitude: pickedLocation?.latitude ?? 52.28697,
+      longitude: pickedLocation?.longitude ?? 104.30502,
       status: 'На модерации',
       statusCode: 'moderation',
       nextStep: 'Модератор проверит фото, описание и место',
@@ -807,7 +826,7 @@ function ReportScreen({
     setMapPickerOpen(true);
   };
 
-  const chooseMapPoint = (point: MapPoint) => {
+  const chooseMapPoint = (point: LocationChoice) => {
     onPickLocation({ latitude: point.latitude, longitude: point.longitude });
     onPickLocationLabel(point.label);
     setMapPickerOpen(true);
@@ -992,20 +1011,31 @@ function MapScreen({
   onConfirmReport: (report: Report) => void;
 }) {
   const [mapFilter, setMapFilter] = useState('Все');
+  const [selectedReportPublicId, setSelectedReportPublicId] = useState(reports[0]?.publicId ?? '');
   const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
   const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
+  const selectedNativeReport = filtered.find((report) => report.publicId === selectedReportPublicId) ?? filtered[0] ?? reports[0];
   const visiblePoints = mapPoints.filter((point) => filtered.some((report) => report.location === point.label));
   const safePoints = visiblePoints.length > 0 ? visiblePoints : mapPoints;
   const selectedPoint = safePoints.find((point) => point.label === selectedPointLabel) ?? safePoints[0];
-  const nearestReport = filtered.find((report) => report.location === selectedPoint.label) ?? filtered[0] ?? reports[0];
+  const nearestReport = Platform.OS === 'web'
+    ? filtered.find((report) => report.location === selectedPoint.label) ?? filtered[0] ?? reports[0]
+    : selectedNativeReport;
   const isConfirmed = confirmedReportIds.has(nearestReport.publicId);
   const palette = getStatusPalette(nearestReport.status);
+  const initialRegion = {
+    latitude: nearestReport.latitude || 52.28697,
+    longitude: nearestReport.longitude || 104.30502,
+    latitudeDelta: 2.8,
+    longitudeDelta: 4.8,
+  };
 
   const handleFilter = (item: string) => {
     const nextFiltered = reports.filter((report) => item === 'Все' || report.category === item);
     const nextReport = nextFiltered[0] ?? reports[0];
     setMapFilter(item);
+    setSelectedReportPublicId(nextReport.publicId);
     setSelectedPointLabel(nextReport.location);
   };
 
@@ -1021,6 +1051,62 @@ function MapScreen({
         ))}
       </ScrollView>
 
+      {Platform.OS !== 'web' ? (
+        <View style={styles.nativeMapCanvas}>
+          <MapView
+            style={styles.nativeMap}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            initialRegion={initialRegion}
+            showsUserLocation
+            showsMyLocationButton
+            onPress={() => undefined}
+          >
+            {filtered.map((report) => {
+              const markerPalette = getStatusPalette(report.status);
+              return (
+                <Marker
+                  key={report.publicId}
+                  coordinate={{ latitude: report.latitude, longitude: report.longitude }}
+                  pinColor={markerPalette.text}
+                  onPress={() => setSelectedReportPublicId(report.publicId)}
+                >
+                  <Callout onPress={() => setSelectedReportPublicId(report.publicId)}>
+                    <View style={styles.mapCallout}>
+                      <Text style={styles.mapCalloutTitle}>{report.title}</Text>
+                      <Text style={styles.mapCalloutText}>{report.publicId} · {report.status}</Text>
+                    </View>
+                  </Callout>
+                </Marker>
+              );
+            })}
+          </MapView>
+          <View style={styles.mapSheet}>
+            <View style={styles.mapSheetHandle} />
+            <View style={styles.mapSheetHeader}>
+              <View style={[styles.mapSheetIcon, { backgroundColor: palette.bg }]}>
+                <MaterialCommunityIcons name="map-marker-alert-outline" size={21} color={palette.text} />
+              </View>
+              <View style={styles.rowCopy}>
+                <Text style={styles.mapSheetMeta}>{nearestReport.publicId} · {nearestReport.location}</Text>
+                <Text style={styles.mapSheetTitle}>{nearestReport.title}</Text>
+                <Text style={styles.mapSheetText}>{nearestReport.confirmations} подтверждений · {nearestReport.nextActionLabel}</Text>
+              </View>
+              <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
+                <Text style={[styles.statusPillText, { color: palette.text }]}>{nearestReport.status}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.mapConfirmButton, isConfirmed && styles.mapConfirmButtonDone]}
+              disabled={isConfirmed || !nearestReport.canConfirm}
+              onPress={() => onConfirmReport(nearestReport)}
+            >
+              <Text style={[styles.mapConfirmButtonText, isConfirmed && styles.mapConfirmButtonTextDone]}>
+                {isConfirmed ? 'Спасибо, учли' : nearestReport.canConfirm ? 'Я видел это место' : 'Заявка закрыта'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
       <View style={styles.mapCanvas}>
         <Image source={heroImage} style={styles.mapImage} resizeMode="cover" />
         <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.72)']} style={styles.mapImageOverlay} />
@@ -1075,6 +1161,7 @@ function MapScreen({
           </Pressable>
         </View>
       </View>
+      )}
     </View>
   );
 }
@@ -1472,11 +1559,21 @@ function LocationPicker({
   mapPickerOpen: boolean;
   onUseCurrentLocation: () => void;
   onOpenMap: () => void;
-  onChoosePoint: (point: MapPoint) => void;
+  onChoosePoint: (point: LocationChoice) => void;
 }) {
   const activePoint = mapPoints.find(
     (point) => point.latitude === pickedLocation?.latitude && point.longitude === pickedLocation?.longitude,
   );
+  const selectedCoordinate = pickedLocation ?? mapPoints[0];
+  const handleNativeMapPress = (event: MapPressEvent) => {
+    const { latitude, longitude } = event.nativeEvent.coordinate;
+    onChoosePoint({
+      latitude,
+      longitude,
+      label: 'Выбранная точка',
+      area: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    });
+  };
 
   return (
     <View style={styles.locationPicker}>
@@ -1493,20 +1590,48 @@ function LocationPicker({
 
       {mapPickerOpen ? (
         <View style={styles.locationMap}>
-          <Image source={heroImage} style={styles.locationMapImage} resizeMode="cover" />
-          <LinearGradient colors={['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.54)']} style={styles.locationMapOverlay} />
-          {mapPoints.map((point) => {
-            const active = activePoint?.label === point.label;
-            return (
-              <Pressable
-                key={point.label}
-                style={[styles.locationMapPin, { top: point.top, left: point.left }, active && styles.locationMapPinActive]}
-                onPress={() => onChoosePoint(point)}
-              >
-                <View style={[styles.locationMapPinCore, active && styles.locationMapPinCoreActive]} />
-              </Pressable>
-            );
-          })}
+          {Platform.OS !== 'web' ? (
+            <MapView
+              style={styles.locationNativeMap}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+              initialRegion={{
+                latitude: selectedCoordinate.latitude,
+                longitude: selectedCoordinate.longitude,
+                latitudeDelta: 0.18,
+                longitudeDelta: 0.18,
+              }}
+              showsUserLocation
+              showsMyLocationButton
+              onPress={handleNativeMapPress}
+            >
+              <Marker coordinate={selectedCoordinate} pinColor="#008F9A" />
+              {mapPoints.map((point) => (
+                <Marker
+                  key={point.label}
+                  coordinate={{ latitude: point.latitude, longitude: point.longitude }}
+                  pinColor={activePoint?.label === point.label ? '#008F9A' : '#247647'}
+                  onPress={() => onChoosePoint(point)}
+                />
+              ))}
+            </MapView>
+          ) : (
+            <>
+              <Image source={heroImage} style={styles.locationMapImage} resizeMode="cover" />
+              <LinearGradient colors={['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.54)']} style={styles.locationMapOverlay} />
+              {mapPoints.map((point) => {
+                const active = activePoint?.label === point.label;
+                return (
+                  <Pressable
+                    key={point.label}
+                    style={[styles.locationMapPin, { top: point.top, left: point.left }, active && styles.locationMapPinActive]}
+                    onPress={() => onChoosePoint(point)}
+                  >
+                    <View style={[styles.locationMapPinCore, active && styles.locationMapPinCoreActive]} />
+                  </Pressable>
+                );
+              })}
+            </>
+          )}
           <View style={styles.locationMapCopy}>
             <Text style={styles.locationMapTitle}>{pickedLocationLabel || 'Выберите точку'}</Text>
             <Text style={styles.locationMapText}>
@@ -2416,6 +2541,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  locationNativeMap: {
+    width: '100%',
+    height: '100%',
+  },
   locationMapImage: {
     position: 'absolute',
     top: 0,
@@ -2523,6 +2652,36 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
     marginBottom: 14,
+  },
+  nativeMapCanvas: {
+    height: 500,
+    borderRadius: 22,
+    backgroundColor: '#e8f5f3',
+    overflow: 'hidden',
+    position: 'relative',
+    marginBottom: 14,
+  },
+  nativeMap: {
+    width: '100%',
+    height: '100%',
+  },
+  mapCallout: {
+    minWidth: 180,
+    maxWidth: 230,
+    padding: 4,
+  },
+  mapCalloutTitle: {
+    color: '#141414',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  mapCalloutText: {
+    color: '#5f6368',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 3,
+    fontWeight: '700',
   },
   mapTopBar: {
     position: 'absolute',

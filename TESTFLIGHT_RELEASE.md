@@ -39,6 +39,14 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL -
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
 ```
 
+For Android builds with native maps, also set:
+
+```bash
+npx eas-cli env:create --environment production --name EXPO_GOOGLE_MAPS_API_KEY_ANDROID --value YOUR_ANDROID_MAPS_KEY
+```
+
+iOS uses Apple Maps through `react-native-maps` and does not need this Android key for TestFlight.
+
 Run release checks first:
 
 ```bash
@@ -63,7 +71,7 @@ After upload, App Store Connect usually needs several minutes to process the bui
 
 - A deployed production backend URL if reports should persist outside the device.
 - Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`, legal operator variables.
-- Real map provider or a clearly marked interactive prototype map.
+- Native map works on iOS/Android; Android production needs `EXPO_GOOGLE_MAPS_API_KEY_ANDROID`.
 - Privacy Policy URL.
 - Support/contact URL.
 - Terms URL.

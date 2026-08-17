@@ -64,6 +64,14 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL -
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
 ```
 
+Для Android-сборки с настоящей картой также нужен ключ Google Maps:
+
+```bash
+npx eas-cli env:create --environment production --name EXPO_GOOGLE_MAPS_API_KEY_ANDROID --value YOUR_ANDROID_MAPS_KEY
+```
+
+Для iOS TestFlight карта работает через Apple Maps и отдельный Google key не нужен.
+
 Для внутренней админ-сборки можно включить:
 
 ```bash
@@ -191,4 +199,5 @@ EXPO_PUBLIC_API_BASE_URL
    - смена статуса;
    - обновление статуса в приложении;
    - бонусы/листики;
+   - настоящая карта, маркеры и выбор точки;
    - privacy/support ссылки.

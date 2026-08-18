@@ -32,11 +32,11 @@ If App Store Connect asks for app data, create the app with:
 Set production-like app env first:
 
 ```bash
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://YOUR_BACKEND_URL
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://baikal.46.17.103.26.sslip.io
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
-npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://baikal.46.17.103.26.sslip.io/privacy
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://baikal.46.17.103.26.sslip.io/support
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://baikal.46.17.103.26.sslip.io/terms
 ```
 
 For Android builds with native maps, also set:
@@ -69,7 +69,7 @@ After upload, App Store Connect usually needs several minutes to process the bui
 
 ## What must be real before external testers
 
-- A deployed production backend URL if reports should persist outside the device.
+- A deployed production backend URL if reports should persist outside the device. Temporary server for TestFlight: `https://baikal.46.17.103.26.sslip.io`.
 - Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`, legal operator variables.
 - Native map works on iOS/Android; Android production needs `EXPO_GOOGLE_MAPS_API_KEY_ANDROID`.
 - Privacy Policy URL.

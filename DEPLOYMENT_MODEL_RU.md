@@ -36,7 +36,21 @@ Backend уже умеет:
 
 ## Временный демонстрационный сервер
 
-Да, можно поднять временный сервер на Render.
+Временный сервер уже поднят вручную:
+
+```text
+https://baikal.46.17.103.26.sslip.io
+```
+
+Админка:
+
+```text
+https://baikal.46.17.103.26.sslip.io/admin
+```
+
+Технические детали и smoke-тесты зафиксированы в `SERVER_DEPLOYMENT_STATUS.md`.
+
+Также можно поднять альтернативный временный сервер на Render.
 
 Это нормальный путь для:
 
@@ -62,6 +76,16 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://YOUR_BACKEND_URL/privacy
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://YOUR_BACKEND_URL/support
 npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://YOUR_BACKEND_URL/terms
+```
+
+Для текущего временного сервера:
+
+```bash
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://baikal.46.17.103.26.sslip.io
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_ADMIN_ENABLED --value false
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_PRIVACY_URL --value https://baikal.46.17.103.26.sslip.io/privacy
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_SUPPORT_URL --value https://baikal.46.17.103.26.sslip.io/support
+npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --value https://baikal.46.17.103.26.sslip.io/terms
 ```
 
 Для Android-сборки с настоящей картой также нужен ключ Google Maps:

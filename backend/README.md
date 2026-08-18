@@ -21,6 +21,12 @@ Health check:
 curl http://localhost:4000/health
 ```
 
+Temporary TestFlight backend:
+
+```text
+https://baikal.46.17.103.26.sslip.io
+```
+
 Admin panel:
 
 ```text

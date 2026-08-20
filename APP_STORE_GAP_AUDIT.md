@@ -25,7 +25,7 @@ Yes, with safe credential handling:
 Present:
 
 - Expo SDK 57 app.
-- iOS bundle id: `ru.newpeople.baikal`.
+- iOS bundle id: `ru.baikal.vrukah`.
 - Camera, gallery, and location permission strings.
 - Report creation flow with local fallback.
 - Report list/status flow.

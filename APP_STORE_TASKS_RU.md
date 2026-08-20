@@ -11,7 +11,7 @@
 ## Что уже есть
 
 - Expo SDK 57.
-- iOS bundle id: `ru.newpeople.baikal`.
+- iOS bundle id: `ru.baikal.vrukah`.
 - Команды EAS build/submit.
 - `expo-doctor` release gate.
 - Главный mobile shell.

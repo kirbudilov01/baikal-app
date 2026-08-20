@@ -2,14 +2,15 @@
 
 ## Current state
 
-The project is an Expo SDK 57 app with iOS bundle id `ru.newpeople.baikal`.
+The project is an Expo SDK 57 app with iOS bundle id `ru.baikal.vrukah`.
+The bundle id is neutral and must not mention party branding.
 It already has native permission text for camera, photo library, and location in `app.json`.
 
 ## Required accounts
 
 - Expo account logged in with `eas login`.
 - Paid Apple Developer account.
-- App Store Connect app created for bundle id `ru.newpeople.baikal`.
+- App Store Connect app created for bundle id `ru.baikal.vrukah`.
 
 ## One-time setup
 
@@ -23,7 +24,7 @@ During credentials setup, select the Apple Developer team and let EAS manage the
 If App Store Connect asks for app data, create the app with:
 
 - Name: `Байкал в наших руках`
-- Bundle ID: `ru.newpeople.baikal`
+- Bundle ID: `ru.baikal.vrukah`
 - Platform: iOS
 - SKU: `baikal-app`
 

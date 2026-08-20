@@ -4,7 +4,7 @@
 
 Goal: prepare `Байкал в наших руках` for TestFlight first, then App Store Review.
 
-Current bundle id: `ru.newpeople.baikal`
+Current bundle id: `ru.baikal.vrukah`
 
 Current technical status:
 
@@ -18,7 +18,7 @@ Current technical status:
 These must be solved before a real App Store submission:
 
 1. Apple Developer account access.
-2. App Store Connect app created for `ru.newpeople.baikal`.
+2. App Store Connect app created for `ru.baikal.vrukah`.
 3. Production backend URL.
 4. Real map provider or a clearly disclosed prototype state for TestFlight only.
 5. Public Privacy Policy URL.

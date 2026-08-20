@@ -12,7 +12,7 @@
       "expo-status-bar"
     ],
     "ios": {
-      "bundleIdentifier": "ru.newpeople.baikal",
+      "bundleIdentifier": "ru.baikal.vrukah",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать экологическую проблему для заявки.",
@@ -21,7 +21,7 @@
       }
     },
     "android": {
-      "package": "ru.newpeople.baikal",
+      "package": "ru.baikal.vrukah",
       "adaptiveIcon": {
         "backgroundColor": "#083456",
         "foregroundImage": "./assets/adaptive-icon.png",

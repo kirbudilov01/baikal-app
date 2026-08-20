@@ -3,7 +3,7 @@
 ## Что уже готово
 
 - Репозиторий: `https://github.com/kirbudilov01/baikal-app`
-- iOS Bundle ID: `ru.newpeople.baikal`
+- iOS Bundle ID: `ru.baikal.vrukah`
 - Временный backend: `https://baikal.46.17.103.26.sslip.io`
 - Админка: `https://baikal.46.17.103.26.sslip.io/admin`
 - Backend уже проверен: заявки, фото, подтверждения, баллы, админка и статусы работают.
@@ -37,13 +37,15 @@ https://developer.apple.com/account/resources/identifiers/list
 6. Bundle ID value:
 
 ```text
-ru.newpeople.baikal
+ru.baikal.vrukah
 ```
 
 7. Capabilities на старте можно оставить базовые. Push пока не включаем, если нет задачи с пушами.
 8. `Continue` -> `Register`
 
-Если Bundle ID уже занят в другой Apple-команде, нужно либо использовать тот аккаунт, где он занят, либо поменять bundle id в приложении и документах.
+Bundle ID специально нейтральный: в нем нет упоминания партии или политического бренда.
+
+Если Bundle ID уже занят в другой Apple-команде, нужно либо использовать тот аккаунт, где он занят, либо выбрать новый нейтральный bundle id и синхронно поменять его в `app.json` и релизных документах.
 
 ## 3. Создать приложение в App Store Connect
 
@@ -65,7 +67,7 @@ https://appstoreconnect.apple.com/apps
 ```
 
 5. Primary language: `Russian`
-6. Bundle ID: `ru.newpeople.baikal`
+6. Bundle ID: `ru.baikal.vrukah`
 7. SKU:
 
 ```text
@@ -100,6 +102,14 @@ npx eas-cli env:create --environment production --name EXPO_PUBLIC_TERMS_URL --v
 
 iOS TestFlight использует Apple Maps через `react-native-maps`, отдельный Google Maps key для iOS сейчас не нужен.
 
+Временный backend на `sslip.io` нужен только для TestFlight и технической проверки. Для публичного App Store лучше завести нейтральный домен проекта и перенести туда:
+
+- backend API;
+- privacy policy;
+- support page;
+- terms;
+- data deletion page.
+
 ## 6. Подготовить iOS credentials
 
 ```bash
@@ -109,7 +119,7 @@ npm run credentials:ios
 Что выбирать:
 
 - Apple team Миши.
-- Bundle ID: `ru.newpeople.baikal`.
+- Bundle ID: `ru.baikal.vrukah`.
 - EAS может управлять certificate/provisioning profile автоматически.
 - Если EAS спросит Apple ID/2FA - вводить самому в терминале/браузере, не пересылать код в чат.
 

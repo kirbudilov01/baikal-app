@@ -1721,6 +1721,7 @@ function AdminScreen({
   const [selectedPromoProfileId, setSelectedPromoProfileId] = useState('');
   const [selectedPromoRewardId, setSelectedPromoRewardId] = useState('');
   const [promoMessage, setPromoMessage] = useState('');
+  const [adminSection, setAdminSection] = useState<'reports' | 'users' | 'promos' | 'db'>('reports');
   const activeReports = reports.filter((report) => report.statusCode !== 'resolved' && report.statusCode !== 'rejected');
   const moderationCount = reports.filter((report) => report.statusCode === 'moderation').length;
   const resolvedCount = reports.filter((report) => report.statusCode === 'resolved').length;
@@ -1728,23 +1729,20 @@ function AdminScreen({
   const totalSpent = users.reduce((sum, user) => sum + user.spent, 0);
   const promoProfileId = selectedPromoProfileId || users[0]?.profileId || '';
   const promoRewardId = selectedPromoRewardId || rewards[0]?.id || '';
+  const adminSections = [
+    { id: 'reports', label: 'Обращения' },
+    { id: 'users', label: 'Пользователи' },
+    { id: 'promos', label: 'Промокоды' },
+    { id: 'db', label: 'База' },
+  ] as const;
 
-  return (
-    <View style={styles.screen}>
-      <AppHeader title="Админка" rightText={`${activeReports.length} активных`} />
-      <View style={styles.adminNotice}>
-        <MaterialCommunityIcons name={adminReady ? 'server-network' : 'shield-alert-outline'} size={20} color="#00736F" />
-        <View style={styles.rowCopy}>
-          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : adminReady ? 'Контур управления' : 'Войдите в админку'}</Text>
-          <Text style={styles.adminNoticeText}>{adminReady ? syncMessage : 'После входа появятся пользователи, заявки и управление статусами.'}</Text>
-        </View>
-        <Pressable style={styles.adminRefreshButton} onPress={onRefresh}>
-          <MaterialCommunityIcons name="refresh" size={18} color="#141414" />
-        </Pressable>
-      </View>
-
-      {!adminReady ? (
+  if (!adminReady) {
+    return (
+      <View style={styles.screen}>
+        <AppHeader title="Вход" rightText="админка" />
         <View style={styles.adminLoginPanel}>
+          <Text style={styles.adminNoticeTitle}>Войдите в админку</Text>
+          <Text style={styles.adminNoticeText}>После входа откроются обращения, пользователи, промокоды и база.</Text>
           <Text style={styles.authLabel}>Логин</Text>
           <TextInput
             value={adminUsername}
@@ -1773,7 +1771,23 @@ function AdminScreen({
             <Text style={styles.primaryButtonText}>Войти</Text>
           </Pressable>
         </View>
-      ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen}>
+      <AppHeader title="Админка" rightText={`${activeReports.length} активных`} />
+      <View style={styles.adminNotice}>
+        <MaterialCommunityIcons name="server-network" size={20} color="#00736F" />
+        <View style={styles.rowCopy}>
+          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : 'Контур управления'}</Text>
+          <Text style={styles.adminNoticeText}>{syncMessage}</Text>
+        </View>
+        <Pressable style={styles.adminRefreshButton} onPress={onRefresh}>
+          <MaterialCommunityIcons name="refresh" size={18} color="#141414" />
+        </Pressable>
+      </View>
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Модерация" value={`${moderationCount}`} />
@@ -1781,13 +1795,37 @@ function AdminScreen({
         <SummaryCell label="Решено" value={`${resolvedCount}`} />
       </View>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminSectionTabs}>
+        {adminSections.map((section) => {
+          const active = adminSection === section.id;
+          return (
+            <Pressable key={section.id} style={[styles.chip, active && styles.chipActive]} onPress={() => setAdminSection(section.id)}>
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{section.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {adminSection === 'reports' ? (
+        <>
+          <SectionHeader title="Очередь обращений" action={`${reports.length}`} />
+          <View style={styles.listPanel}>
+            {reports.map((report) => (
+              <AdminReportCard key={report.publicId} report={report} adminReady={adminReady} onStatusChange={onStatusChange} />
+            ))}
+          </View>
+        </>
+      ) : null}
+
+      {adminSection === 'users' ? (
+        <>
       <SectionHeader title="Пользователи" action={`${users.length}`} />
       <View style={styles.adminUserGrid}>
         {users.length > 0 ? users.slice(0, 6).map((user) => <AdminUserCard key={user.id} user={user} />) : (
           <View style={styles.adminEmptyCard}>
             <MaterialCommunityIcons name="account-search-outline" size={22} color="#6b7280" />
-            <Text style={styles.adminEmptyTitle}>{adminReady ? 'Пользователей пока нет' : 'База пользователей закрыта'}</Text>
-            <Text style={styles.adminEmptyText}>{adminReady ? 'После регистрации аккаунты появятся здесь.' : 'Войдите, чтобы увидеть аккаунты и балансы.'}</Text>
+            <Text style={styles.adminEmptyTitle}>Пользователей пока нет</Text>
+            <Text style={styles.adminEmptyText}>После регистрации аккаунты появятся здесь.</Text>
           </View>
         )}
       </View>
@@ -1797,7 +1835,11 @@ function AdminScreen({
         <SummaryCell label="Списано" value={`${totalSpent}`} />
         <SummaryCell label="Промокоды" value={`${promoCodes.length}`} />
       </View>
+        </>
+      ) : null}
 
+      {adminSection === 'promos' ? (
+        <>
       <SectionHeader title="Промокоды" action={`${promoCodes.length}`} />
       <View style={styles.adminPromoPanel}>
         <Text style={styles.adminPickerTitle}>Кому выдать</Text>
@@ -1848,20 +1890,19 @@ function AdminScreen({
           ))}
         </View>
       </View>
+        </>
+      ) : null}
 
+      {adminSection === 'db' ? (
+        <>
       <SectionHeader title="База" action="срез" />
       <View style={styles.adminDbPanel}>
         <InfoRow icon="account-group-outline" title="Пользователи" text={`${users.length} аккаунтов в базе`} />
         <InfoRow icon="clipboard-text-outline" title="Обращения" text={`${reports.length} заявок со статусами и координатами`} />
         <InfoRow icon="ticket-percent-outline" title="Промокоды" text={`${promoCodes.length} выданных кодов`} />
       </View>
-
-      <SectionHeader title="Очередь заявок" action={`${reports.length}`} />
-      <View style={styles.listPanel}>
-        {reports.map((report) => (
-          <AdminReportCard key={report.publicId} report={report} adminReady={adminReady} onStatusChange={onStatusChange} />
-        ))}
-      </View>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -3833,6 +3874,10 @@ const styles = StyleSheet.create({
   adminUserGrid: {
     gap: 8,
     marginBottom: 12,
+  },
+  adminSectionTabs: {
+    gap: 8,
+    paddingBottom: 12,
   },
   adminUserCard: {
     borderRadius: 16,

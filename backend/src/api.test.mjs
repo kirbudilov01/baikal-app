@@ -212,5 +212,23 @@ test('serves release-critical API, legal pages, and admin protection', async () 
       body: JSON.stringify({ profileId: registered.user.profileId, rewardId: rewards.rewards[1].id }),
     });
     assert.equal(repeatedPromo.status, 409);
+
+    const globalPromo = await fetch(`${baseUrl}/api/admin/promo-codes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminLogin.token}` },
+      body: JSON.stringify({ mode: 'global', title: 'Партнерский тест', rewardId: rewards.rewards[2].id, quantity: 3 }),
+    }).then((response) => response.json());
+
+    assert.equal(globalPromo.promoCodes.length, 3);
+    assert.equal(globalPromo.promoCodes.every((item) => item.promoType === 'global'), true);
+    assert.equal(globalPromo.db.promoCodes.length, promoCodeCountBefore + 4);
+
+    const exportResponse = await fetch(`${baseUrl}/api/admin/export?kind=promo-codes`, {
+      headers: { authorization: `Bearer ${adminLogin.token}` },
+    });
+    const exportText = await exportResponse.text();
+    assert.equal(exportResponse.status, 200);
+    assert.equal(exportResponse.headers.get('content-type').startsWith('text/csv'), true);
+    assert.match(exportText, /id;code;type;campaign/);
   });
 });

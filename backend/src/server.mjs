@@ -77,6 +77,15 @@ function sendHtml(response, statusCode, html) {
   response.end(html);
 }
 
+function sendDownload(response, fileName, payload, contentType) {
+  response.writeHead(200, {
+    'content-type': contentType,
+    'content-disposition': `attachment; filename="${fileName}"`,
+    'cache-control': 'no-store',
+  });
+  response.end(payload);
+}
+
 function sendBuffer(response, statusCode, payload, contentType) {
   response.writeHead(statusCode, {
     'content-type': contentType,
@@ -319,10 +328,13 @@ function adminUsers(users, db) {
 
 function publicRewardClaim(claim) {
   const reward = rewardCatalog.find((item) => item.id === claim.rewardId);
+  const promoTitle = claim.profileId.startsWith('promo:') ? claim.profileId.split(':')[1] : '';
   return {
     ...claim,
     rewardTitle: reward?.title ?? claim.rewardId,
     rewardPartner: reward?.partner ?? '',
+    promoType: claim.profileId.startsWith('promo:') ? 'global' : 'personal',
+    promoTitle: promoTitle ? promoTitle.replace(/-/g, ' ') : '',
   };
 }
 
@@ -352,6 +364,89 @@ function createRewardCode(rewardId) {
     .slice(0, 3)
     .toUpperCase();
   return `BAIKAL-${prefix}-${suffix}`;
+}
+
+function promoSlug(value) {
+  return String(value || 'promo')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-zа-я0-9]+/giu, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 36) || 'promo';
+}
+
+function csvCell(value) {
+  const text = String(value ?? '').replace(/\r?\n/g, ' ');
+  return /[;"\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvTable(headers, rows) {
+  return '\uFEFF' + [
+    headers.map(csvCell).join(';'),
+    ...rows.map((row) => row.map(csvCell).join(';')),
+  ].join('\n');
+}
+
+async function adminExportCsv(kind) {
+  const snapshot = await adminDatabaseSnapshot();
+  if (kind === 'users') {
+    return csvTable(
+      ['id', 'username', 'profile_id', 'balance', 'earned', 'spent', 'reports', 'active_reports', 'resolved_reports', 'claimed_rewards', 'created_at', 'last_seen_at'],
+      snapshot.users.map((user) => [
+        user.id,
+        user.username,
+        user.profileId,
+        user.balance,
+        user.earned,
+        user.spent,
+        user.reports,
+        user.activeReports,
+        user.resolvedReports,
+        user.claimedRewards,
+        user.createdAt,
+        user.lastSeenAt,
+      ]),
+    );
+  }
+
+  if (kind === 'promo-codes') {
+    return csvTable(
+      ['id', 'code', 'type', 'campaign', 'profile_id', 'reward_id', 'reward_title', 'partner', 'points_spent', 'status', 'created_at'],
+      snapshot.promoCodes.map((promo) => [
+        promo.id,
+        promo.code,
+        promo.promoType,
+        promo.promoTitle,
+        promo.profileId,
+        promo.rewardId,
+        promo.rewardTitle,
+        promo.rewardPartner,
+        promo.pointsSpent,
+        promo.status,
+        promo.createdAt,
+      ]),
+    );
+  }
+
+  return csvTable(
+    ['id', 'title', 'category', 'description', 'location', 'latitude', 'longitude', 'status', 'points', 'confirmations', 'profile_id', 'photo_url', 'created_at', 'updated_at'],
+    snapshot.reports.map((report) => [
+      report.id,
+      report.title,
+      report.category,
+      report.description,
+      report.locationText,
+      report.latitude,
+      report.longitude,
+      report.status?.label,
+      report.points,
+      report.confirmations,
+      report.profileId,
+      report.photoUrl,
+      report.createdAt,
+      report.updatedAt,
+    ]),
+  );
 }
 
 function allowedNextStatuses(status) {
@@ -411,6 +506,49 @@ function adminPageHtml() {
       margin: 0 auto;
       padding: 24px 20px 40px;
     }
+    .login-screen {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .login-card {
+      width: min(100%, 440px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+    }
+    .login-mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, var(--teal), var(--green));
+      font-size: 26px;
+      font-weight: 900;
+      margin-bottom: 18px;
+    }
+    .login-card h1 {
+      font-size: 30px;
+      line-height: 34px;
+      margin-bottom: 6px;
+    }
+    .login-card p {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 22px;
+      font-weight: 700;
+      margin: 0 0 18px;
+    }
+    .login-form {
+      display: grid;
+      gap: 10px;
+    }
+    .app-shell[hidden], .login-screen[hidden] { display: none; }
     header {
       display: flex;
       align-items: flex-start;
@@ -503,8 +641,30 @@ function adminPageHtml() {
       background: #eef0f2;
       color: var(--text);
     }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.tab {
+      background: #fff;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.tab.active {
+      background: var(--teal);
+      color: #fff;
+      border-color: var(--teal);
+    }
     button.secondary:hover { background: #e1e6e8; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .panel[hidden] { display: none; }
     .grid {
       display: grid;
       grid-template-columns: 1fr 390px;
@@ -582,7 +742,7 @@ function adminPageHtml() {
     .users {
       margin-top: 16px;
     }
-    .promo, .database {
+    .promo, .database, .export {
       margin-top: 16px;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -641,10 +801,24 @@ function adminPageHtml() {
     .user-metric span { color: var(--muted); font-size: 11px; font-weight: 800; }
     .promo-form {
       display: grid;
-      grid-template-columns: 1fr 1fr auto;
+      grid-template-columns: 1fr 1fr 120px auto;
       gap: 10px;
       align-items: end;
     }
+    .promo-modes, .export-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 10px 0 14px;
+    }
+    .promo-mode {
+      border-radius: 16px;
+      background: #f6f8f8;
+      border: 1px solid var(--border);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .promo-mode[hidden] { display: none; }
     .table-wrap {
       overflow-x: auto;
       border: 1px solid var(--border);
@@ -710,30 +884,47 @@ function adminPageHtml() {
   </style>
 </head>
 <body>
-  <div class="shell">
+  <section class="login-screen" id="loginScreen">
+    <form class="login-card" id="authForm">
+      <div class="login-mark">Б</div>
+      <h1>Вход в админку</h1>
+      <p>Управление обращениями, пользователями, промокодами и выгрузками проекта.</p>
+      <div class="login-form">
+        <label><span class="label">Логин</span><input id="adminLogin" type="text" placeholder="Введите логин" autocomplete="username" /></label>
+        <label><span class="label">Пароль</span><input id="adminPassword" type="password" placeholder="Введите пароль" autocomplete="current-password" /></label>
+        <button id="saveToken">Войти</button>
+        <div id="loginMessage" class="hint"></div>
+      </div>
+    </form>
+  </section>
+
+  <div class="shell app-shell" id="adminApp" hidden>
     <header>
       <div>
         <h1>Админка</h1>
         <div class="subtitle">Байкал в наших руках · обращения, пользователи, промокоды</div>
       </div>
-      <form class="auth" id="authForm">
-        <input id="adminLogin" type="text" placeholder="Логин" autocomplete="username" />
-        <input id="adminPassword" type="password" placeholder="Пароль" autocomplete="current-password" />
-        <button id="saveToken">Войти</button>
-      </form>
+      <button class="ghost" id="logout">Выйти</button>
     </header>
 
     <section class="ops-hero">
       <div>
-        <div class="ops-hero-title">Очередь обращений</div>
-        <div class="ops-hero-text">Проверяйте фото, координаты и описание, меняйте статус и выдавайте бонусы. Все изменения сразу видны в приложении.</div>
+        <div class="ops-hero-title">Операционный центр</div>
+        <div class="ops-hero-text">Здесь видно, что происходит в приложении: новые обращения, база участников, бонусные коды и выгрузки для команды.</div>
       </div>
       <div class="ops-live" id="adminState">Вход не выполнен</div>
     </section>
 
     <section class="summary" id="summary"></section>
 
-    <main class="grid">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="reports">Очередь обращений</button>
+      <button class="tab" data-tab="users">База пользователей</button>
+      <button class="tab" data-tab="promos">Промокоды</button>
+      <button class="tab" data-tab="database">База и выгрузка</button>
+    </nav>
+
+    <main class="grid panel" data-panel="reports">
       <section class="reports">
         <div class="toolbar">
           <button class="secondary" data-filter="all">Все</button>
@@ -749,7 +940,7 @@ function adminPageHtml() {
       </aside>
     </main>
 
-    <section class="users">
+    <section class="users panel" data-panel="users" hidden>
       <div class="section-head">
         <div>
           <h2>Пользователи</h2>
@@ -760,28 +951,48 @@ function adminPageHtml() {
       <div id="userList" class="empty">Войдите как администратор</div>
     </section>
 
-    <section class="promo">
+    <section class="promo panel" data-panel="promos" hidden>
       <div class="section-head">
         <div>
           <h2>Промокоды</h2>
-          <div class="section-note">Выдайте бонус конкретному пользователю. Код появится в базе и в истории бонусов пользователя.</div>
+          <div class="section-note">Создавайте персональные промокоды для участников или общие коды для партнерских кампаний.</div>
         </div>
       </div>
-      <div class="promo-form">
-        <label><span class="label">Пользователь</span><select id="promoUser"></select></label>
-        <label><span class="label">Бонус</span><select id="promoReward"></select></label>
-        <button id="createPromo">Создать промокод</button>
+      <div class="promo-modes">
+        <button class="tab active" data-promo-mode="personal">Персональный</button>
+        <button class="tab" data-promo-mode="global">Общий</button>
+      </div>
+      <div class="promo-mode" data-promo-panel="personal">
+        <div class="promo-form">
+          <label><span class="label">Пользователь</span><select id="promoUser"></select></label>
+          <label><span class="label">Бонус</span><select id="promoReward"></select></label>
+          <label><span class="label">Кол-во</span><input id="promoQuantity" type="number" min="1" max="1" value="1" disabled /></label>
+          <button id="createPromo">Создать</button>
+        </div>
+      </div>
+      <div class="promo-mode" data-promo-panel="global" hidden>
+        <div class="promo-form">
+          <label><span class="label">Кампания</span><input id="globalPromoTitle" type="text" value="Партнерская кампания" /></label>
+          <label><span class="label">Бонус</span><select id="globalPromoReward"></select></label>
+          <label><span class="label">Кол-во</span><input id="globalPromoQuantity" type="number" min="1" max="100" value="10" /></label>
+          <button id="createGlobalPromo">Создать пачку</button>
+        </div>
       </div>
       <div id="promoMessage"></div>
       <div id="promoList" class="empty">Промокодов пока нет</div>
     </section>
 
-    <section class="database">
+    <section class="database panel" data-panel="database" hidden>
       <div class="section-head">
         <div>
-          <h2>База</h2>
+          <h2>База и выгрузка</h2>
           <div class="section-note">Операционный срез: пользователи, заявки и выданные промокоды. Приватные данные здесь не отображаются.</div>
         </div>
+      </div>
+      <div class="export-actions">
+        <button class="secondary" data-export="reports">Выгрузить обращения</button>
+        <button class="secondary" data-export="users">Выгрузить пользователей</button>
+        <button class="secondary" data-export="promo-codes">Выгрузить промокоды</button>
       </div>
       <div id="dbView" class="empty">Войдите как администратор</div>
     </section>
@@ -800,10 +1011,14 @@ function adminPageHtml() {
       summary: null,
       selectedId: null,
       filter: 'all',
+      activeTab: 'reports',
+      promoMode: 'personal',
     };
 
     const loginInput = document.querySelector('#adminLogin');
     const passwordInput = document.querySelector('#adminPassword');
+    const loginScreen = document.querySelector('#loginScreen');
+    const adminApp = document.querySelector('#adminApp');
 
     const statusLabels = {
       moderation: 'На модерации',
@@ -821,9 +1036,34 @@ function adminPageHtml() {
       };
     }
 
+    function esc(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]);
+    }
+
     function formatDate(value) {
       if (!value) return '';
       return new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+    }
+
+    function userLabel(profileId) {
+      const user = state.users.find((item) => item.profileId === profileId);
+      if (user) return '@' + user.username;
+      if (profileId === 'demo-profile') return 'демо-профиль';
+      if (profileId === 'seed-profile') return 'тестовый профиль';
+      return profileId || 'профиль не указан';
+    }
+
+    function promoStatusLabel(status) {
+      if (status === 'active') return 'Активен';
+      if (status === 'issued') return 'Выдан';
+      if (status === 'used') return 'Погашен';
+      return status || 'Без статуса';
     }
 
     function filteredReports() {
@@ -835,6 +1075,8 @@ function adminPageHtml() {
 
     function renderSummary() {
       const summary = state.summary || { total: 0, active: 0, resolved: 0, byStatus: {} };
+      loginScreen.hidden = Boolean(state.token);
+      adminApp.hidden = !state.token;
       document.querySelector('#adminState').textContent = state.token ? 'Админ вошел' : 'Вход не выполнен';
       document.querySelector('#summary').innerHTML = [
         ['Всего', summary.total || 0],
@@ -842,6 +1084,19 @@ function adminPageHtml() {
         ['Модерация', summary.byStatus?.moderation || 0],
         ['Пользователи', state.users.length || 0],
       ].map(([label, value]) => '<div class="stat"><strong>' + value + '</strong><span>' + label + '</span></div>').join('');
+
+      document.querySelectorAll('[data-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.tab === state.activeTab);
+      });
+      document.querySelectorAll('[data-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.panel !== state.activeTab;
+      });
+      document.querySelectorAll('[data-promo-mode]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.promoMode === state.promoMode);
+      });
+      document.querySelectorAll('[data-promo-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.promoPanel !== state.promoMode;
+      });
     }
 
     function renderReports() {
@@ -857,11 +1112,11 @@ function adminPageHtml() {
       list.innerHTML = reports.map((report) => {
         const active = report.id === state.selectedId ? ' active' : '';
         return '<button class="report' + active + '" data-id="' + report.id + '">' +
-          '<div class="row"><div><div class="id">' + report.id + ' · ' + report.locationText + '</div>' +
-          '<div class="title">' + report.title + '</div>' +
-          '<div class="meta">' + report.category + ' · ' + formatDate(report.createdAt) + '</div>' +
-          '<div class="profile-pill">' + (report.profileId || 'profile unknown') + '</div></div>' +
-          '<span class="pill">' + report.status.label + '</span></div>' +
+          '<div class="row"><div><div class="id">' + esc(report.id) + ' · ' + esc(report.locationText) + '</div>' +
+          '<div class="title">' + esc(report.title) + '</div>' +
+          '<div class="meta">' + esc(report.category) + ' · ' + formatDate(report.createdAt) + '</div>' +
+          '<div class="profile-pill">' + esc(userLabel(report.profileId)) + '</div></div>' +
+          '<span class="pill">' + esc(report.status.label) + '</span></div>' +
         '</button>';
       }).join('');
     }
@@ -879,18 +1134,18 @@ function adminPageHtml() {
       ).join('');
 
       const events = (report.events || []).map((event) =>
-        '<div class="event">[' + formatDate(event.createdAt) + '] ' + event.actor + ': ' + (event.comment || event.status || event.type) + '</div>'
+        '<div class="event">[' + formatDate(event.createdAt) + '] ' + esc(event.actor) + ': ' + esc(event.comment || event.status || event.type) + '</div>'
       ).join('') || '<div class="hint">Истории пока нет</div>';
-      const photo = report.photoUrl ? '<img class="photo" src="' + report.photoUrl + '" alt="Фото заявки" />' : '<div class="hint">Фото не приложено</div>';
+      const photo = report.photoUrl ? '<img class="photo" src="' + esc(report.photoUrl) + '" alt="Фото заявки" />' : '<div class="hint">Фото не приложено</div>';
       const mapsUrl = 'https://maps.apple.com/?ll=' + report.latitude + ',' + report.longitude + '&q=' + encodeURIComponent(report.title);
 
-      detail.innerHTML = '<div class="row"><div><div class="id">' + report.id + '</div><h2>' + report.title + '</h2>' +
-        '<div class="meta">' + report.category + ' · ' + report.locationText + '</div></div>' +
-        '<span class="pill">' + report.status.label + '</span></div>' +
+      detail.innerHTML = '<div class="row"><div><div class="id">' + esc(report.id) + '</div><h2>' + esc(report.title) + '</h2>' +
+        '<div class="meta">' + esc(report.category) + ' · ' + esc(report.locationText) + '</div></div>' +
+        '<span class="pill">' + esc(report.status.label) + '</span></div>' +
         '<div class="detail-section"><span class="label">Фото</span>' + photo + '</div>' +
-        '<div class="detail-section"><span class="label">Описание</span><div>' + (report.description || 'Нет описания') + '</div></div>' +
-        '<div class="detail-section"><span class="label">Профиль</span><div>' + (report.profileId || 'Неизвестно') + '</div></div>' +
-        '<div class="detail-section"><span class="label">Координаты</span><div>' + report.latitude + ', ' + report.longitude + ' · <a class="link" target="_blank" rel="noreferrer" href="' + mapsUrl + '">Открыть карту</a></div></div>' +
+        '<div class="detail-section"><span class="label">Описание</span><div>' + esc(report.description || 'Нет описания') + '</div></div>' +
+        '<div class="detail-section"><span class="label">Профиль</span><div>' + esc(userLabel(report.profileId)) + '</div></div>' +
+        '<div class="detail-section"><span class="label">Координаты</span><div>' + esc(report.latitude) + ', ' + esc(report.longitude) + ' · <a class="link" target="_blank" rel="noreferrer" href="' + esc(mapsUrl) + '">Открыть карту</a></div></div>' +
         '<div class="detail-section"><span class="label">Комментарий администратора</span><textarea id="comment" placeholder="Например: передано координатору района"></textarea>' +
         '<div class="actions">' + (actionButtons || '<span class="hint">Финальный статус, действий нет</span>') + '</div><div id="message"></div></div>' +
         '<div class="detail-section"><span class="label">История</span>' + events + '</div>';
@@ -907,8 +1162,8 @@ function adminPageHtml() {
       list.className = 'user-grid';
       list.innerHTML = state.users.map((user) => {
         return '<article class="user-card">' +
-          '<div class="user-name">@' + user.username + '</div>' +
-          '<div class="meta">' + user.profileId + '</div>' +
+          '<div class="user-name">@' + esc(user.username) + '</div>' +
+          '<div class="meta">' + esc(user.profileId) + '</div>' +
           '<div class="meta">Создан: ' + formatDate(user.createdAt) + '</div>' +
           '<div class="meta">Активность: ' + (user.lastSeenAt ? formatDate(user.lastSeenAt) : 'еще не было') + '</div>' +
           '<div class="user-metrics">' +
@@ -924,9 +1179,12 @@ function adminPageHtml() {
     function renderPromoTools() {
       const userSelect = document.querySelector('#promoUser');
       const rewardSelect = document.querySelector('#promoReward');
+      const globalRewardSelect = document.querySelector('#globalPromoReward');
       const promoList = document.querySelector('#promoList');
-      userSelect.innerHTML = state.users.map((user) => '<option value="' + user.profileId + '">@' + user.username + ' · ' + user.balance + ' листиков</option>').join('');
-      rewardSelect.innerHTML = state.rewards.map((reward) => '<option value="' + reward.id + '">' + reward.title + ' · ' + reward.cost + ' листиков</option>').join('');
+      userSelect.innerHTML = state.users.map((user) => '<option value="' + esc(user.profileId) + '">@' + esc(user.username) + ' · ' + user.balance + ' листиков</option>').join('');
+      const rewardOptions = state.rewards.map((reward) => '<option value="' + esc(reward.id) + '">' + esc(reward.title) + ' · ' + reward.cost + ' листиков</option>').join('');
+      rewardSelect.innerHTML = rewardOptions;
+      globalRewardSelect.innerHTML = rewardOptions;
 
       if (!state.promoCodes.length) {
         promoList.className = 'empty';
@@ -935,8 +1193,8 @@ function adminPageHtml() {
       }
 
       promoList.className = 'table-wrap';
-      promoList.innerHTML = '<table><thead><tr><th>Код</th><th>Пользователь</th><th>Бонус</th><th>Списано</th><th>Дата</th></tr></thead><tbody>' +
-        state.promoCodes.map((promo) => '<tr><td><strong>' + promo.code + '</strong></td><td>' + promo.profileId + '</td><td>' + promo.rewardTitle + '</td><td>' + promo.pointsSpent + '</td><td>' + formatDate(promo.createdAt) + '</td></tr>').join('') +
+      promoList.innerHTML = '<table><thead><tr><th>Код</th><th>Тип</th><th>Получатель/кампания</th><th>Бонус</th><th>Списано</th><th>Статус</th><th>Дата</th></tr></thead><tbody>' +
+        state.promoCodes.map((promo) => '<tr><td><strong>' + esc(promo.code) + '</strong></td><td>' + (promo.promoType === 'global' ? 'Общий' : 'Персональный') + '</td><td>' + esc(promo.promoTitle || userLabel(promo.profileId)) + '</td><td>' + esc(promo.rewardTitle) + '</td><td>' + promo.pointsSpent + '</td><td>' + esc(promoStatusLabel(promo.status)) + '</td><td>' + formatDate(promo.createdAt) + '</td></tr>').join('') +
       '</tbody></table>';
     }
 
@@ -965,8 +1223,19 @@ function adminPageHtml() {
       renderDbView();
     }
 
+    function resetDashboard() {
+      state.db = null;
+      state.reports = [];
+      state.users = [];
+      state.rewards = [];
+      state.promoCodes = [];
+      state.summary = null;
+      state.selectedId = null;
+    }
+
     async function loadDashboard() {
       if (!state.token) {
+        resetDashboard();
         render();
         return;
       }
@@ -1001,6 +1270,8 @@ function adminPageHtml() {
     }
 
     async function loginAdmin() {
+      document.querySelector('#loginMessage').className = 'hint';
+      document.querySelector('#loginMessage').textContent = 'Проверяем доступ...';
       const response = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1011,26 +1282,36 @@ function adminPageHtml() {
       state.token = payload.token;
       localStorage.setItem('baikalAdminToken', state.token);
       passwordInput.value = '';
+      document.querySelector('#loginMessage').textContent = '';
       await loadDashboard();
     }
 
-    async function createPromoCode() {
+    async function createPromoCode(mode) {
       const message = document.querySelector('#promoMessage');
       message.className = 'hint';
       message.textContent = 'Создаем код...';
       try {
+        const body = mode === 'global'
+          ? {
+              mode: 'global',
+              title: document.querySelector('#globalPromoTitle').value,
+              rewardId: document.querySelector('#globalPromoReward').value,
+              quantity: document.querySelector('#globalPromoQuantity').value,
+            }
+          : {
+              mode: 'personal',
+              profileId: document.querySelector('#promoUser').value,
+              rewardId: document.querySelector('#promoReward').value,
+            };
         const response = await fetch('/api/admin/promo-codes', {
           method: 'POST',
           headers: headers(),
-          body: JSON.stringify({
-            profileId: document.querySelector('#promoUser').value,
-            rewardId: document.querySelector('#promoReward').value,
-          }),
+          body: JSON.stringify(body),
         });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'Не удалось создать промокод');
         message.className = 'ok';
-        message.textContent = 'Промокод создан: ' + payload.promoCode.code;
+        message.textContent = (payload.promoCodes?.length > 1 ? 'Промокоды созданы: ' + payload.promoCodes.length : 'Промокод создан: ' + payload.promoCode.code);
         state.db = payload.db;
         state.reports = payload.db.reports || [];
         state.users = payload.db.users || [];
@@ -1041,6 +1322,23 @@ function adminPageHtml() {
         message.className = 'error';
         message.textContent = error.message;
       }
+    }
+
+    async function exportData(kind) {
+      const response = await fetch('/api/admin/export?kind=' + encodeURIComponent(kind), { headers: headers() });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Не удалось выгрузить файл');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'baikal-' + kind + '.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     }
 
     async function changeStatus(reportId, status) {
@@ -1070,13 +1368,45 @@ function adminPageHtml() {
     document.querySelector('#authForm').addEventListener('submit', (event) => {
       event.preventDefault();
       loginAdmin().catch((error) => {
-        document.querySelector('#adminState').textContent = error.message;
+        const message = document.querySelector('#loginMessage');
+        message.className = 'error';
+        message.textContent = error.message;
       });
+    });
+
+    document.querySelector('#logout').addEventListener('click', () => {
+      state.token = '';
+      localStorage.removeItem('baikalAdminToken');
+      resetDashboard();
+      render();
     });
 
     document.querySelector('#refresh').addEventListener('click', loadDashboard);
     document.querySelector('#refreshUsers').addEventListener('click', loadDashboard);
-    document.querySelector('#createPromo').addEventListener('click', createPromoCode);
+    document.querySelector('#createPromo').addEventListener('click', () => createPromoCode('personal'));
+    document.querySelector('#createGlobalPromo').addEventListener('click', () => createPromoCode('global'));
+
+    document.querySelector('#tabs').addEventListener('click', (event) => {
+      const tab = event.target?.dataset?.tab;
+      if (!tab) return;
+      state.activeTab = tab;
+      render();
+    });
+
+    document.querySelector('.promo-modes').addEventListener('click', (event) => {
+      const mode = event.target?.dataset?.promoMode;
+      if (!mode) return;
+      state.promoMode = mode;
+      render();
+    });
+
+    document.querySelectorAll('[data-export]').forEach((button) => {
+      button.addEventListener('click', () => {
+        exportData(button.dataset.export).catch((error) => {
+          document.querySelector('#adminState').textContent = error.message;
+        });
+      });
+    });
 
     document.querySelector('.toolbar').addEventListener('click', (event) => {
       const filter = event.target?.dataset?.filter;
@@ -1665,38 +1995,55 @@ async function route(request, response) {
     return;
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/admin/export') {
+    requireAdmin(request);
+    const kind = ['reports', 'users', 'promo-codes'].includes(url.searchParams.get('kind')) ? url.searchParams.get('kind') : 'reports';
+    sendDownload(response, `baikal-${kind}.csv`, await adminExportCsv(kind), 'text/csv; charset=utf-8');
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/admin/promo-codes') {
     const payload = await readJson(request);
-    const adminId = requireAdmin(request);
-    const profileId = String(payload.profileId || '').trim();
+    requireAdmin(request);
+    const mode = payload.mode === 'global' ? 'global' : 'personal';
     const rewardId = String(payload.rewardId || '').trim();
+    const quantity = Math.min(100, Math.max(1, Number.parseInt(String(payload.quantity || 1), 10) || 1));
+    const title = promoSlug(payload.title || 'общий-промокод');
+    const profileId = mode === 'global'
+      ? `promo:${title}:${randomUUID().slice(0, 8)}`
+      : String(payload.profileId || '').trim();
     const reward = rewardCatalog.find((item) => item.id === rewardId);
     if (!profileId) throw createDomainError(400, 'Выберите пользователя');
     if (!reward) throw createDomainError(404, 'Бонус не найден');
 
     const nextDb = await updateDb((db) => {
-      const existingClaim = db.rewardClaims.find((claim) => claim.profileId === profileId && claim.rewardId === rewardId);
-      if (existingClaim) throw createDomainError(409, 'Промокод для этого бонуса уже выдан');
+      if (mode === 'personal') {
+        const existingClaim = db.rewardClaims.find((claim) => claim.profileId === profileId && claim.rewardId === rewardId);
+        if (existingClaim) throw createDomainError(409, 'Промокод для этого бонуса уже выдан');
+      }
 
       const now = new Date().toISOString();
-      const claim = {
+      const claims = Array.from({ length: quantity }, () => ({
         id: randomUUID(),
-        profileId,
+        profileId: mode === 'global' ? `promo:${title}:${randomUUID().slice(0, 8)}` : profileId,
         rewardId,
         code: createRewardCode(rewardId),
         pointsSpent: reward.cost,
-        status: 'issued',
+        status: mode === 'global' ? 'active' : 'issued',
         createdAt: now,
-      };
+      }));
 
       return {
-        rewardClaims: [claim, ...db.rewardClaims],
+        rewardClaims: [...claims, ...db.rewardClaims],
       };
     });
 
-    const claim = nextDb.rewardClaims.find((item) => item.profileId === profileId && item.rewardId === rewardId);
+    const createdClaims = mode === 'global'
+      ? nextDb.rewardClaims.filter((item) => item.profileId.startsWith(`promo:${title}:`) && item.rewardId === rewardId).slice(0, quantity)
+      : nextDb.rewardClaims.filter((item) => item.profileId === profileId && item.rewardId === rewardId).slice(0, 1);
     sendJson(response, 201, {
-      promoCode: publicRewardClaim(claim),
+      promoCode: publicRewardClaim(createdClaims[0]),
+      promoCodes: createdClaims.map(publicRewardClaim),
       db: await adminDatabaseSnapshot(),
     });
     return;

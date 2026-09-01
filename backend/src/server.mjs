@@ -1,9 +1,9 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readDb, updateDb } from './store.mjs';
+import { createSession, createUser, findSessionUser, findUserByUsername, readDb, updateDb } from './store.mjs';
 import { assertCanTransition, createDomainError, publicStatus, reportStatuses } from './status-machine.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,7 +56,7 @@ function applyCors(request, response) {
   const allowedOrigin = allowedOrigins.includes(String(origin)) ? origin : allowedOrigins[0];
 
   response.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-  response.setHeader('access-control-allow-headers', 'content-type,x-admin-id,x-admin-token,authorization');
+  response.setHeader('access-control-allow-headers', 'content-type,x-admin-id,x-admin-token,x-profile-id,authorization');
   response.setHeader('vary', 'origin');
   response.setHeader('access-control-allow-origin', allowedOrigin || '*');
 }
@@ -146,10 +146,60 @@ function requireAdmin(request) {
   return request.headers['x-admin-id'] || 'admin:api';
 }
 
-function profileIdFromRequest(request) {
+function bearerToken(request) {
+  return String(request.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+}
+
+async function userFromRequest(request) {
+  const token = bearerToken(request);
+  if (!token) return null;
+  return findSessionUser(token);
+}
+
+async function profileIdFromRequest(request) {
+  const user = await userFromRequest(request);
+  if (user?.profileId) return user.profileId;
+
   const raw = String(request.headers['x-profile-id'] || '').trim();
   if (!raw) return 'demo-profile';
   return raw.replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80) || 'demo-profile';
+}
+
+function normalizeUsername(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function validateCredentials(payload) {
+  const username = normalizeUsername(payload.username);
+  const password = String(payload.password || '');
+
+  if (!/^[a-z0-9_.-]{3,24}$/.test(username)) {
+    throw createDomainError(400, 'Username can contain 3-24 latin letters, numbers, dot, dash or underscore');
+  }
+  if (password.length < 6 || password.length > 72) {
+    throw createDomainError(400, 'Password must contain 6-72 characters');
+  }
+
+  return { username, password };
+}
+
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 32).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  const [algorithm, salt, hash] = String(storedHash || '').split('$');
+  if (algorithm !== 'scrypt' || !salt || !hash) return false;
+
+  const expected = Buffer.from(hash, 'hex');
+  const actual = scryptSync(password, salt, expected.length);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function createAuthToken() {
+  return randomBytes(32).toString('base64url');
 }
 
 function publicReport(report) {
@@ -266,15 +316,17 @@ function adminPageHtml() {
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f6f7;
+      --bg: #f3f7f6;
       --surface: #ffffff;
       --text: #141414;
       --muted: #6b7280;
       --border: #e5e7eb;
       --teal: #008f9a;
+      --teal-dark: #006f76;
       --green: #247647;
       --danger: #a33a3a;
       --soft: #e8f5f3;
+      --shadow: 0 18px 42px rgba(20, 20, 20, 0.08);
     }
     * { box-sizing: border-box; }
     body {
@@ -286,19 +338,19 @@ function adminPageHtml() {
     .shell {
       max-width: 1180px;
       margin: 0 auto;
-      padding: 28px 20px 40px;
+      padding: 24px 20px 40px;
     }
     header {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 20px;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
     h1 {
       margin: 0;
-      font-size: 34px;
-      line-height: 38px;
+      font-size: 36px;
+      line-height: 40px;
       letter-spacing: 0;
     }
     .subtitle {
@@ -306,16 +358,52 @@ function adminPageHtml() {
       font-weight: 700;
       margin-top: 5px;
     }
-    .auth, .summary, .reports, .detail {
+    .auth, .summary, .reports, .detail, .ops-hero {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 20px;
       padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .ops-hero {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      margin-bottom: 16px;
+      background:
+        linear-gradient(135deg, rgba(0,143,154,0.12), rgba(36,118,71,0.1)),
+        var(--surface);
+    }
+    .ops-hero-title {
+      font-size: 22px;
+      line-height: 27px;
+      font-weight: 900;
+      margin-bottom: 6px;
+    }
+    .ops-hero-text {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 700;
+      max-width: 650px;
+    }
+    .ops-live {
+      min-height: 44px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--teal-dark);
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      font-weight: 900;
+      white-space: nowrap;
     }
     .auth {
       min-width: 320px;
       display: flex;
       gap: 8px;
+      box-shadow: none;
     }
     input, textarea, select, button {
       font: inherit;
@@ -339,10 +427,12 @@ function adminPageHtml() {
       font-weight: 800;
       cursor: pointer;
     }
+    button:hover { background: var(--teal-dark); }
     button.secondary {
       background: #eef0f2;
       color: var(--text);
     }
+    button.secondary:hover { background: #e1e6e8; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .grid {
       display: grid;
@@ -357,7 +447,7 @@ function adminPageHtml() {
       margin-bottom: 16px;
     }
     .stat {
-      background: var(--bg);
+      background: linear-gradient(180deg, #f8fbfa, #eef6f4);
       border-radius: 14px;
       padding: 12px;
     }
@@ -408,6 +498,16 @@ function adminPageHtml() {
       font-weight: 850;
       white-space: nowrap;
     }
+    .profile-pill {
+      display: inline-flex;
+      border-radius: 999px;
+      background: #f2f3f5;
+      color: var(--muted);
+      padding: 6px 9px;
+      font-size: 12px;
+      font-weight: 850;
+      margin-top: 8px;
+    }
     .detail h2 { margin: 0 0 4px; font-size: 22px; line-height: 27px; }
     .detail-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
     .photo {
@@ -440,6 +540,8 @@ function adminPageHtml() {
       .auth { width: 100%; min-width: 0; }
       .grid { grid-template-columns: 1fr; }
       .summary { grid-template-columns: repeat(2, 1fr); }
+      .ops-hero { grid-template-columns: 1fr; }
+      .ops-live { justify-content: center; }
     }
   </style>
 </head>
@@ -455,6 +557,14 @@ function adminPageHtml() {
         <button id="saveToken">Войти</button>
       </div>
     </header>
+
+    <section class="ops-hero">
+      <div>
+        <div class="ops-hero-title">Очередь обращений</div>
+        <div class="ops-hero-text">Проверяйте фото, координаты и описание. Статусы двигаются только по разрешенной цепочке, чтобы мобильное приложение всегда показывало понятный следующий шаг.</div>
+      </div>
+      <div class="ops-live">Live backend</div>
+    </section>
 
     <section class="summary" id="summary"></section>
 
@@ -542,7 +652,8 @@ function adminPageHtml() {
         return '<button class="report' + active + '" data-id="' + report.id + '">' +
           '<div class="row"><div><div class="id">' + report.id + ' · ' + report.locationText + '</div>' +
           '<div class="title">' + report.title + '</div>' +
-          '<div class="meta">' + report.category + ' · ' + formatDate(report.createdAt) + '</div></div>' +
+          '<div class="meta">' + report.category + ' · ' + formatDate(report.createdAt) + '</div>' +
+          '<div class="profile-pill">' + (report.profileId || 'profile unknown') + '</div></div>' +
           '<span class="pill">' + report.status.label + '</span></div>' +
         '</button>';
       }).join('');
@@ -952,6 +1063,44 @@ async function route(request, response) {
     return;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/auth/register') {
+    const payload = await readJson(request);
+    const { username, password } = validateCredentials(payload);
+    const existingUser = await findUserByUsername(username);
+    if (existingUser) throw createDomainError(409, 'Username is already taken');
+
+    const now = new Date().toISOString();
+    const user = await createUser({
+      id: randomUUID(),
+      username,
+      passwordHash: hashPassword(password),
+      createdAt: now,
+    });
+    const session = await createSession({ token: createAuthToken(), userId: user.id, createdAt: now });
+    sendJson(response, 201, session);
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/auth/login') {
+    const payload = await readJson(request);
+    const { username, password } = validateCredentials(payload);
+    const user = await findUserByUsername(username);
+    if (!user || !verifyPassword(password, user.passwordHash)) {
+      throw createDomainError(401, 'Invalid username or password');
+    }
+
+    const session = await createSession({ token: createAuthToken(), userId: user.id, createdAt: new Date().toISOString() });
+    sendJson(response, 200, session);
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/auth/me') {
+    const user = await userFromRequest(request);
+    if (!user) throw createDomainError(401, 'Authorization required');
+    sendJson(response, 200, { user });
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/rewards') {
     sendJson(response, 200, { rewards: rewardCatalog });
     return;
@@ -959,7 +1108,7 @@ async function route(request, response) {
 
   if (request.method === 'GET' && url.pathname === '/api/me/summary') {
     const db = await readDb();
-    const profileId = profileIdFromRequest(request);
+    const profileId = await profileIdFromRequest(request);
     sendJson(response, 200, { profile: profileSummary(db.reports, db.rewardClaims, profileId) });
     return;
   }
@@ -969,7 +1118,7 @@ async function route(request, response) {
     const rewardId = rewardClaimMatch[1];
     const reward = rewardCatalog.find((item) => item.id === rewardId);
     if (!reward) throw createDomainError(404, 'Reward not found');
-    const profileId = profileIdFromRequest(request);
+    const profileId = await profileIdFromRequest(request);
 
     const nextDb = await updateDb((db) => {
       const summary = profileSummary(db.reports, db.rewardClaims, profileId);
@@ -1010,7 +1159,7 @@ async function route(request, response) {
   if (request.method === 'POST' && url.pathname === '/api/reports') {
     const payload = await readJson(request);
     validateReportPayload(payload);
-    const profileId = profileIdFromRequest(request);
+    const profileId = await profileIdFromRequest(request);
 
     const nextDb = await updateDb((db) => {
       const now = new Date().toISOString();
@@ -1056,6 +1205,7 @@ async function route(request, response) {
   const confirmMatch = url.pathname.match(/^\/api\/reports\/([^/]+)\/confirm$/);
   if (request.method === 'POST' && confirmMatch) {
     const reportId = confirmMatch[1];
+    const profileId = await profileIdFromRequest(request);
 
     const nextDb = await updateDb((db) => {
       const index = db.reports.findIndex((report) => report.id === reportId);
@@ -1084,7 +1234,7 @@ async function route(request, response) {
             reportId,
             type: 'confirmed',
             status: current.status,
-            actor: 'mobile:user',
+            actor: `mobile:${profileId}`,
             comment: 'Пользователь подтвердил, что видел проблему на месте.',
             createdAt: now,
           },

@@ -63,6 +63,36 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     const rewards = await fetch(`${baseUrl}/api/rewards`).then((response) => response.json());
     assert.equal(rewards.rewards.length, 3);
 
+    const registered = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'tester_1', password: 'secret123' }),
+    }).then((response) => response.json());
+
+    assert.equal(registered.user.username, 'tester_1');
+    assert.match(registered.user.profileId, /^user:/);
+    assert.equal(typeof registered.token, 'string');
+
+    const duplicateRegistration = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'tester_1', password: 'secret123' }),
+    });
+    assert.equal(duplicateRegistration.status, 409);
+
+    const loggedIn = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'tester_1', password: 'secret123' }),
+    }).then((response) => response.json());
+
+    assert.equal(loggedIn.user.id, registered.user.id);
+
+    const currentUser = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { authorization: `Bearer ${loggedIn.token}` },
+    }).then((response) => response.json());
+    assert.equal(currentUser.user.id, registered.user.id);
+
     const claimed = await fetch(`${baseUrl}/api/rewards/${rewards.rewards[0].id}/claim`, {
       method: 'POST',
       headers: { 'x-profile-id': 'device:test-a' },
@@ -105,7 +135,7 @@ test('serves release-critical API, legal pages, and admin protection', async () 
 
     const created = await fetch(`${baseUrl}/api/reports`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-profile-id': 'device:test-a' },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${loggedIn.token}` },
       body: JSON.stringify({
         title: 'Тестовая заявка',
         category: 'Мусор',
@@ -133,7 +163,7 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     }).then((response) => response.json());
 
     const adminReport = admin.reports.find((report) => report.id === created.report.id);
-    assert.equal(adminReport.profileId, 'device:test-a');
+    assert.equal(adminReport.profileId, registered.user.profileId);
     assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
   });
 });

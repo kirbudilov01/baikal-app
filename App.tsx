@@ -129,6 +129,18 @@ type ProfileSummary = {
   nextReward: ApiReward | null;
 };
 
+type AuthUser = {
+  id: string;
+  username: string;
+  profileId: string;
+  createdAt: string;
+};
+
+type AuthPayload = {
+  token: string;
+  user: AuthUser;
+};
+
 type ApiUpload = {
   url: string;
   path: string;
@@ -152,6 +164,7 @@ const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
+const AUTH_STORAGE_KEY = 'baikal-auth-v1';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
 const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
@@ -330,13 +343,14 @@ function rewardFromApi(reward: ApiReward): Reward {
   };
 }
 
-async function requestJson<T>(path: string, options?: RequestInit & { profileId?: string | null }): Promise<T> {
-  const { profileId, ...fetchOptions } = options ?? {};
+async function requestJson<T>(path: string, options?: RequestInit & { profileId?: string | null; authToken?: string | null }): Promise<T> {
+  const { profileId, authToken, ...fetchOptions } = options ?? {};
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...fetchOptions,
     headers: {
       'content-type': 'application/json',
       ...(profileId ? { 'x-profile-id': profileId } : {}),
+      ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
       ...(options?.headers ?? {}),
     },
   });
@@ -377,6 +391,10 @@ export default function App() {
   const [rewardCatalog, setRewardCatalog] = useState(initialRewards);
   const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [authMessage, setAuthMessage] = useState('');
   const [lastClaim, setLastClaim] = useState<RewardClaim | null>(null);
   const [confirmedReportIds, setConfirmedReportIds] = useState<Set<string>>(new Set());
   const [submittedReport, setSubmittedReport] = useState<Report | null>(null);
@@ -426,6 +444,32 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const loadAuth = async () => {
+      try {
+        const storedAuth = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+        if (!storedAuth) return;
+
+        const parsed = JSON.parse(storedAuth) as Partial<AuthPayload>;
+        if (!parsed.token) return;
+
+        const payload = await requestJson<{ user: AuthUser }>('/api/auth/me', { authToken: parsed.token });
+        setAuthToken(parsed.token);
+        setAuthUser(payload.user);
+        setProfileId(payload.user.profileId);
+        await AsyncStorage.setItem(PROFILE_STORAGE_KEY, payload.user.profileId);
+      } catch {
+        await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+      } finally {
+        setAuthLoaded(true);
+      }
+    };
+
+    loadAuth().catch(() => setAuthLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!authLoaded || authUser) return;
+
     const loadProfile = async () => {
       const storedProfileId = await AsyncStorage.getItem(PROFILE_STORAGE_KEY);
       if (storedProfileId) {
@@ -439,7 +483,7 @@ export default function App() {
     };
 
     loadProfile().catch(() => setProfileId('demo-profile'));
-  }, []);
+  }, [authLoaded, authUser]);
 
   useEffect(() => {
     if (!draftLoaded) return;
@@ -459,9 +503,9 @@ export default function App() {
     setIsSyncing(true);
     try {
       const [reportPayload, rewardsPayload, profilePayload] = await Promise.all([
-        requestJson<{ reports: ApiReport[] }>('/api/reports', { profileId }),
-        requestJson<{ rewards: ApiReward[] }>('/api/rewards', { profileId }),
-        requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId }),
+        requestJson<{ reports: ApiReport[] }>('/api/reports', { profileId, authToken }),
+        requestJson<{ rewards: ApiReward[] }>('/api/rewards', { profileId, authToken }),
+        requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId, authToken }),
       ]);
       const apiReports = reportPayload.reports.map(reportFromApi);
       setReports(apiReports.length > 0 ? apiReports : initialReports);
@@ -478,7 +522,33 @@ export default function App() {
 
   useEffect(() => {
     loadReportsFromApi();
-  }, [profileId]);
+  }, [authToken, profileId]);
+
+  const completeAuth = async (payload: AuthPayload) => {
+    setAuthToken(payload.token);
+    setAuthUser(payload.user);
+    setProfileId(payload.user.profileId);
+    setAuthMessage('');
+    await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
+    await AsyncStorage.setItem(PROFILE_STORAGE_KEY, payload.user.profileId);
+  };
+
+  const submitAuth = async (mode: 'register' | 'login', username: string, password: string) => {
+    setAuthMessage('');
+    const payload = await requestJson<AuthPayload>(mode === 'register' ? '/api/auth/register' : '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    await completeAuth(payload);
+  };
+
+  const logout = async () => {
+    setAuthToken(null);
+    setAuthUser(null);
+    setProfileSummary(null);
+    setLastClaim(null);
+    await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+  };
 
   const clearDraft = () => {
     setSelectedCategory(categories[0].label);
@@ -534,6 +604,7 @@ export default function App() {
         const uploadPayload = await requestJson<{ upload: ApiUpload }>('/api/uploads', {
           method: 'POST',
           profileId: activeProfileId,
+          authToken,
           body: JSON.stringify({
             contentType: inferImageContentType(pickedImage),
             dataBase64: await imageUriToBase64(pickedImage),
@@ -545,6 +616,7 @@ export default function App() {
       const payload = await requestJson<{ report: ApiReport }>('/api/reports', {
         method: 'POST',
         profileId: activeProfileId,
+        authToken,
         body: JSON.stringify({
           title: localReport.title,
           category: localReport.category,
@@ -562,7 +634,7 @@ export default function App() {
     }
 
     setReports([nextReport, ...reports]);
-    requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId })
+    requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId, authToken })
       .then((payload) => setProfileSummary(payload.profile))
       .catch(() => undefined);
     setSubmittedReport(nextReport);
@@ -580,10 +652,11 @@ export default function App() {
       const payload = await requestJson<{ report: ApiReport }>(`/api/reports/${report.publicId}/confirm`, {
         method: 'POST',
         profileId: activeProfileId,
+        authToken,
       });
       const updated = reportFromApi(payload.report);
       setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
-      requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId })
+      requestJson<{ profile: ProfileSummary }>('/api/me/summary', { profileId: activeProfileId, authToken })
         .then((summaryPayload) => setProfileSummary(summaryPayload.profile))
         .catch(() => undefined);
       setSyncMessage(`Подтверждение ${updated.publicId} учтено`);
@@ -604,6 +677,7 @@ export default function App() {
       const payload = await requestJson<{ claim: RewardClaim; profile: ProfileSummary }>(`/api/rewards/${reward.id}/claim`, {
         method: 'POST',
         profileId: activeProfileId,
+        authToken,
       });
       setProfileSummary(payload.profile);
       setLastClaim(payload.claim);
@@ -612,6 +686,34 @@ export default function App() {
       setSyncMessage(error instanceof Error ? error.message : 'Не удалось забрать бонус');
     }
   };
+
+  if (!authLoaded) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.shell}>
+          <View style={styles.authScreen}>
+            <Text style={styles.authTitle}>Байкал</Text>
+            <Text style={styles.authText}>Готовим профиль участника...</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <AuthScreen
+          message={authMessage}
+          onSubmit={(mode, username, password) =>
+            submitAuth(mode, username, password).catch((error) => setAuthMessage(error instanceof Error ? error.message : 'Не удалось войти'))
+          }
+        />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -670,7 +772,9 @@ export default function App() {
               rewards={rewardCatalog}
               claimedRewards={profileSummary?.claimedRewards ?? []}
               lastClaim={lastClaim}
+              username={authUser.username}
               onClaimReward={claimReward}
+              onLogout={logout}
             />
           )}
           {ADMIN_ENABLED && activeTab === 'admin' && (
@@ -763,6 +867,86 @@ function HomeScreen({
       <SectionHeader title="Последняя заявка" action="Все" onAction={onOpenReports} />
       <View style={styles.listPanel}>
         <ReportRow report={newestReport} />
+      </View>
+    </View>
+  );
+}
+
+function AuthScreen({
+  message,
+  onSubmit,
+}: {
+  message: string;
+  onSubmit: (mode: 'register' | 'login', username: string, password: string) => void;
+}) {
+  const [mode, setMode] = useState<'register' | 'login'>('register');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const usernameReady = /^[a-z0-9_.-]{3,24}$/.test(username.trim().toLowerCase());
+  const passwordReady = password.length >= 6;
+  const canSubmit = usernameReady && passwordReady;
+
+  return (
+    <View style={styles.authShell}>
+      <View style={styles.authHero}>
+        <Image source={heroImage} style={styles.authHeroImage} resizeMode="cover" />
+        <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,72,78,0.78)']} style={styles.authHeroOverlay} />
+        <View style={styles.authHeroContent}>
+          <View style={styles.heroPill}>
+            <MaterialCommunityIcons name="shield-lock-outline" size={15} color="#ffffff" />
+            <Text style={styles.heroPillText}>Профиль нужен для заявок и листиков</Text>
+          </View>
+          <Text style={styles.authTitle}>Байкал в наших руках</Text>
+          <Text style={styles.authText}>Создайте простой аккаунт: username и пароль. Так заявки, статусы и бонусы не потеряются при обновлениях.</Text>
+        </View>
+      </View>
+
+      <View style={styles.authPanel}>
+        <View style={styles.authModeRow}>
+          <Pressable style={[styles.authModeButton, mode === 'register' && styles.authModeButtonActive]} onPress={() => setMode('register')}>
+            <Text style={[styles.authModeText, mode === 'register' && styles.authModeTextActive]}>Создать</Text>
+          </Pressable>
+          <Pressable style={[styles.authModeButton, mode === 'login' && styles.authModeButtonActive]} onPress={() => setMode('login')}>
+            <Text style={[styles.authModeText, mode === 'login' && styles.authModeTextActive]}>Войти</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.authLabel}>Username</Text>
+        <TextInput
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="например, baikal_ivan"
+          placeholderTextColor="#8b8b8b"
+          style={styles.authInput}
+        />
+        <Text style={styles.authFieldHint}>Латиница, цифры, точка, дефис или нижнее подчеркивание.</Text>
+
+        <Text style={styles.authLabel}>Пароль</Text>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          placeholder="минимум 6 символов"
+          placeholderTextColor="#8b8b8b"
+          style={styles.authInput}
+        />
+
+        {message ? <Text style={styles.authError}>{message}</Text> : null}
+
+        <Pressable
+          style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]}
+          onPress={canSubmit ? () => onSubmit(mode, username.trim().toLowerCase(), password) : undefined}
+        >
+          <Text style={styles.primaryButtonText}>{mode === 'register' ? 'Создать профиль' : 'Войти'}</Text>
+        </Pressable>
+
+        <View style={styles.authBenefitList}>
+          <InfoRow icon="clipboard-check-outline" title="Заявки сохраняются" text="Все обращения будут привязаны к вашему аккаунту." />
+          <InfoRow icon="leaf" title="Листики не теряются" text="Баланс и бонусы подтянутся после входа." />
+          <InfoRow icon="eye-off-outline" title="Контакты не публичны" text="В заявках виден служебный профиль, не личные данные." />
+        </View>
       </View>
     </View>
   );
@@ -1204,14 +1388,18 @@ function ProfileScreen({
   rewards,
   claimedRewards,
   lastClaim,
+  username,
   onClaimReward,
+  onLogout,
 }: {
   balance: number;
   reports: Report[];
   rewards: Reward[];
   claimedRewards: RewardClaim[];
   lastClaim: RewardClaim | null;
+  username: string;
   onClaimReward: (reward: Reward) => void;
+  onLogout: () => void;
 }) {
   const openUrl = (url: string) => {
     if (!url) return;
@@ -1232,10 +1420,10 @@ function ProfileScreen({
       ) : null}
 
       <View style={styles.profileCard}>
-        <Text style={styles.profileInitial}>К</Text>
+        <Text style={styles.profileInitial}>{username.slice(0, 1).toUpperCase()}</Text>
         <View style={styles.rowCopy}>
-          <Text style={styles.rowTitle}>Участник проекта</Text>
-          <Text style={styles.rowText}>Доверие растет за подтвержденные обращения</Text>
+          <Text style={styles.rowTitle}>@{username}</Text>
+          <Text style={styles.rowText}>Заявки, листики и бонусы привязаны к аккаунту</Text>
         </View>
       </View>
 
@@ -1276,6 +1464,11 @@ function ProfileScreen({
         <TrustLine icon="account-check-outline" title="Подтверждения других людей" value="+18%" />
         <TrustLine icon="check-decagram-outline" title="Решенные заявки" value="+25%" />
       </View>
+
+      <Pressable style={styles.logoutButton} onPress={onLogout}>
+        <MaterialCommunityIcons name="logout" size={18} color="#a33a3a" />
+        <Text style={styles.logoutButtonText}>Выйти из аккаунта</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1890,6 +2083,127 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 10,
+  },
+  authShell: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 430,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  authScreen: {
+    flex: 1,
+    padding: 24,
+    justifyContent: 'center',
+  },
+  authHero: {
+    minHeight: 292,
+    borderRadius: 26,
+    overflow: 'hidden',
+    backgroundColor: '#0A3D44',
+    position: 'relative',
+  },
+  authHeroImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  authHeroOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  authHeroContent: {
+    flex: 1,
+    minHeight: 292,
+    padding: 18,
+    justifyContent: 'flex-end',
+  },
+  authPanel: {
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
+    marginTop: 12,
+  },
+  authModeRow: {
+    minHeight: 44,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 14,
+  },
+  authModeButton: {
+    flex: 1,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authModeButtonActive: {
+    backgroundColor: '#008F9A',
+  },
+  authModeText: {
+    color: '#5f6368',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  authModeTextActive: {
+    color: '#ffffff',
+  },
+  authTitle: {
+    color: '#ffffff',
+    fontSize: 31,
+    lineHeight: 36,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  authText: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  authLabel: {
+    color: '#141414',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginBottom: 7,
+  },
+  authInput: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    color: '#141414',
+    fontSize: 15,
+    paddingHorizontal: 13,
+    marginBottom: 8,
+  },
+  authFieldHint: {
+    color: '#6b7280',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: -2,
+    marginBottom: 12,
+  },
+  authError: {
+    color: '#a33a3a',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  authBenefitList: {
+    marginTop: 12,
   },
   appHeader: {
     minHeight: 50,
@@ -3325,6 +3639,23 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     backgroundColor: '#f5f6f7',
     padding: 14,
+  },
+  logoutButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#fff1f1',
+    borderWidth: 1,
+    borderColor: '#f4c7c7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 2,
+  },
+  logoutButtonText: {
+    color: '#a33a3a',
+    fontSize: 14,
+    fontWeight: '800',
   },
   trustTitle: {
     color: '#141414',

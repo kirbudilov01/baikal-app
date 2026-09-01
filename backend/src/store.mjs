@@ -102,10 +102,26 @@ sqlite.exec(`
     UNIQUE(profile_id, reward_id)
   );
 
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
   CREATE INDEX IF NOT EXISTS idx_events_report_id ON events(report_id);
   CREATE INDEX IF NOT EXISTS idx_reward_claims_profile_id ON reward_claims(profile_id);
+  CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 `);
 
 const reportColumns = sqlite.prepare('PRAGMA table_info(reports)').all().map((column) => column.name);
@@ -187,6 +203,34 @@ const insertRewardClaim = sqlite.prepare(`
   )
 `);
 
+const insertUser = sqlite.prepare(`
+  INSERT INTO users (
+    id,
+    username,
+    password_hash,
+    created_at
+  ) VALUES (
+    @id,
+    @username,
+    @passwordHash,
+    @createdAt
+  )
+`);
+
+const insertSession = sqlite.prepare(`
+  INSERT INTO sessions (
+    token,
+    user_id,
+    created_at,
+    last_seen_at
+  ) VALUES (
+    @token,
+    @userId,
+    @createdAt,
+    @lastSeenAt
+  )
+`);
+
 function rowToReport(row) {
   return {
     id: row.id,
@@ -227,6 +271,25 @@ function rowToRewardClaim(row) {
     pointsSpent: row.points_spent,
     status: row.status,
     createdAt: row.created_at,
+  };
+}
+
+function rowToUser(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at,
+  };
+}
+
+function publicUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    profileId: `user:${user.id}`,
+    createdAt: user.createdAt,
   };
 }
 
@@ -286,4 +349,44 @@ export async function updateDb(updater) {
   });
 
   return updateTransaction();
+}
+
+export async function createUser({ id, username, passwordHash, createdAt }) {
+  insertUser.run({ id, username, passwordHash, createdAt });
+  return publicUser({ id, username, passwordHash, createdAt });
+}
+
+export async function findUserByUsername(username) {
+  const row = sqlite.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  return row ? rowToUser(row) : null;
+}
+
+export async function findUserById(userId) {
+  const row = sqlite.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  return row ? rowToUser(row) : null;
+}
+
+export async function createSession({ token, userId, createdAt }) {
+  insertSession.run({ token, userId, createdAt, lastSeenAt: createdAt });
+  const user = await findUserById(userId);
+  return {
+    token,
+    user: publicUser(user),
+  };
+}
+
+export async function findSessionUser(token) {
+  const row = sqlite
+    .prepare(
+      `SELECT users.*
+       FROM sessions
+       JOIN users ON users.id = sessions.user_id
+       WHERE sessions.token = ?`,
+    )
+    .get(token);
+  if (!row) return null;
+
+  const now = new Date().toISOString();
+  sqlite.prepare('UPDATE sessions SET last_seen_at = ? WHERE token = ?').run(now, token);
+  return publicUser(rowToUser(row));
 }

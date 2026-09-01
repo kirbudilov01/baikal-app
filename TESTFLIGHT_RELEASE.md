@@ -72,6 +72,7 @@ After upload, App Store Connect usually needs several minutes to process the bui
 
 - A deployed production backend URL if reports should persist outside the device. Temporary server for TestFlight: `https://baikal.46.17.103.26.sslip.io`.
 - Backend env: `ADMIN_TOKEN`, `ALLOWED_ORIGINS`, `MAX_BODY_BYTES`, `SUPPORT_EMAIL`, legal operator variables.
+- Registration/login API works through `/api/auth/register`, `/api/auth/login`, and `/api/auth/me`.
 - Native map works on iOS/Android; Android production needs `EXPO_GOOGLE_MAPS_API_KEY_ANDROID`.
 - Privacy Policy URL.
 - Support/contact URL.

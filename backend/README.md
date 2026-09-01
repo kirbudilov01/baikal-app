@@ -39,6 +39,9 @@ http://localhost:4000/admin
 - `POST /api/reports` - create report from mobile app
 - `POST /api/uploads` - upload report photo as base64 JSON
 - `GET /uploads/:file` - serve uploaded report photo
+- `POST /api/auth/register` - create a username/password account
+- `POST /api/auth/login` - create a session token for an existing account
+- `GET /api/auth/me` - return the current bearer-token user
 - `POST /api/reports/:id/confirm` - confirm a visible report from the map
 - `GET /api/statuses` - mobile/admin status dictionary
 - `GET /api/rewards` - reward catalog
@@ -62,9 +65,10 @@ curl http://localhost:4000/api/admin/reports \
 
 The browser admin panel stores the token in local browser storage. Use it only on trusted devices.
 
-Mobile endpoints accept `x-profile-id`. The app generates and stores this local
-device profile automatically, so TestFlight users have separate balances and
-reward claims without a login screen.
+Mobile endpoints accept bearer auth tokens from `/api/auth/login` or
+`/api/auth/register`. For backward compatibility they still accept `x-profile-id`,
+but the mobile app now shows a first-launch username/password onboarding screen
+and attaches reports, balances, and reward claims to the created account.
 
 ## Environment
 

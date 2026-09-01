@@ -165,5 +165,16 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     const adminReport = admin.reports.find((report) => report.id === created.report.id);
     assert.equal(adminReport.profileId, registered.user.profileId);
     assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
+
+    const adminUsers = await fetch(`${baseUrl}/api/admin/users`, {
+      headers: { 'x-admin-token': 'test-token' },
+    }).then((response) => response.json());
+
+    const adminUser = adminUsers.users.find((user) => user.id === registered.user.id);
+    assert.equal(adminUser.username, registered.user.username);
+    assert.equal(adminUser.profileId, registered.user.profileId);
+    assert.equal(adminUser.reports, 1);
+    assert.equal(adminUser.balance > 0, true);
+    assert.equal('passwordHash' in adminUser, false);
   });
 });

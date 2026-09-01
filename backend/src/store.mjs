@@ -280,6 +280,7 @@ function rowToUser(row) {
     username: row.username,
     passwordHash: row.password_hash,
     createdAt: row.created_at,
+    lastSeenAt: row.last_seen_at ?? null,
   };
 }
 
@@ -290,6 +291,7 @@ function publicUser(user) {
     username: user.username,
     profileId: `user:${user.id}`,
     createdAt: user.createdAt,
+    lastSeenAt: user.lastSeenAt ?? null,
   };
 }
 
@@ -364,6 +366,20 @@ export async function findUserByUsername(username) {
 export async function findUserById(userId) {
   const row = sqlite.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   return row ? rowToUser(row) : null;
+}
+
+export async function listUsers() {
+  return sqlite
+    .prepare(
+      `SELECT users.*, MAX(sessions.last_seen_at) AS last_seen_at
+       FROM users
+       LEFT JOIN sessions ON sessions.user_id = users.id
+       GROUP BY users.id
+       ORDER BY users.created_at DESC`,
+    )
+    .all()
+    .map(rowToUser)
+    .map(publicUser);
 }
 
 export async function createSession({ token, userId, createdAt }) {

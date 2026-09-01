@@ -167,6 +167,35 @@ type Reward = {
 const heroImage = require('./assets/baikal/hero-clean.png');
 const reportImage = require('./assets/baikal/report-clean.png');
 const rewardImage = require('./assets/baikal/rewards-clean.png');
+const onboardingPages: Array<{
+  title: string;
+  text: string;
+  image: ImageSourcePropType;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  accent: string;
+}> = [
+  {
+    title: 'Заметили проблему у Байкала?',
+    text: 'Снимите фото, выберите место на карте и отправьте короткое описание. Без лишних анкет.',
+    image: heroImage,
+    icon: 'camera-outline',
+    accent: '#008F9A',
+  },
+  {
+    title: 'Мы ведем заявку по шагам',
+    text: 'Видно, где обращение: проверка, передача ответственным, работа или решение.',
+    image: reportImage,
+    icon: 'map-marker-check-outline',
+    accent: '#247647',
+  },
+  {
+    title: 'Полезные действия дают листики',
+    text: 'Фото, подтверждения и решенные проблемы превращаются в бонусы у партнеров.',
+    image: rewardImage,
+    icon: 'gift-outline',
+    accent: '#008F9A',
+  },
+];
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
 const AUTH_STORAGE_KEY = 'baikal-auth-v1';
@@ -890,24 +919,100 @@ function AuthScreen({
   onSubmit: (mode: 'register' | 'login', username: string, password: string) => void;
 }) {
   const [mode, setMode] = useState<'register' | 'login'>('register');
+  const [pageIndex, setPageIndex] = useState(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const usernameReady = /^[a-z0-9_.-]{3,24}$/.test(username.trim().toLowerCase());
   const passwordReady = password.length >= 6;
   const canSubmit = usernameReady && passwordReady;
+  const isOnboarding = pageIndex < onboardingPages.length;
+
+  if (isOnboarding) {
+    const page = onboardingPages[pageIndex];
+    const isLastPage = pageIndex === onboardingPages.length - 1;
+
+    return (
+      <ScrollView style={styles.authShell} contentContainerStyle={styles.authScrollInner} showsVerticalScrollIndicator={false}>
+        <View style={styles.onboardingTop}>
+          <Text style={styles.onboardingBrand}>Байкал</Text>
+          <Pressable style={styles.onboardingSkip} onPress={() => setPageIndex(onboardingPages.length)}>
+            <Text style={styles.onboardingSkipText}>Войти</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.onboardingCard}>
+          <Image source={page.image} style={styles.onboardingImage} resizeMode="cover" />
+          <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,64,70,0.82)']} style={styles.authHeroOverlay} />
+          <View style={styles.onboardingImageContent}>
+            <View style={[styles.onboardingIcon, { backgroundColor: page.accent }]}>
+              <MaterialCommunityIcons name={page.icon} size={24} color="#ffffff" />
+            </View>
+            <Text style={styles.onboardingTitle}>{page.title}</Text>
+            <Text style={styles.onboardingText}>{page.text}</Text>
+          </View>
+        </View>
+
+        <View style={styles.onboardingDots}>
+          {onboardingPages.map((item, index) => (
+            <Pressable
+              key={item.title}
+              accessibilityRole="button"
+              accessibilityLabel={`Экран ${index + 1}`}
+              style={[styles.onboardingDot, index === pageIndex && styles.onboardingDotActive]}
+              onPress={() => setPageIndex(index)}
+            />
+          ))}
+        </View>
+
+        <View style={styles.onboardingActions}>
+          <Pressable
+            style={styles.onboardingSecondaryButton}
+            onPress={() => setPageIndex(Math.max(0, pageIndex - 1))}
+            disabled={pageIndex === 0}
+          >
+            <Text style={[styles.onboardingSecondaryText, pageIndex === 0 && styles.onboardingSecondaryTextDisabled]}>Назад</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.primaryButton, styles.onboardingPrimaryButton]}
+            onPress={() => {
+              if (isLastPage) {
+                setMode('register');
+                setPageIndex(onboardingPages.length);
+                return;
+              }
+              setPageIndex(pageIndex + 1);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>{isLastPage ? 'Создать профиль' : 'Дальше'}</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color="#ffffff" />
+          </Pressable>
+        </View>
+
+        <Pressable
+          style={styles.onboardingLoginLine}
+          onPress={() => {
+            setMode('login');
+            setPageIndex(onboardingPages.length);
+          }}
+        >
+          <Text style={styles.onboardingLoginText}>Уже есть аккаунт</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
 
   return (
-    <View style={styles.authShell}>
-      <View style={styles.authHero}>
-        <Image source={heroImage} style={styles.authHeroImage} resizeMode="cover" />
-        <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,72,78,0.78)']} style={styles.authHeroOverlay} />
-        <View style={styles.authHeroContent}>
+    <ScrollView style={styles.authShell} contentContainerStyle={styles.authScrollInner} showsVerticalScrollIndicator={false}>
+      <View style={styles.authCompactHero}>
+        <Image source={rewardImage} style={styles.authHeroImage} resizeMode="cover" />
+        <LinearGradient colors={['rgba(0,0,0,0.08)', 'rgba(0,72,78,0.80)']} style={styles.authHeroOverlay} />
+        <View style={styles.authCompactHeroContent}>
           <View style={styles.heroPill}>
             <MaterialCommunityIcons name="shield-lock-outline" size={15} color="#ffffff" />
-            <Text style={styles.heroPillText}>Профиль нужен для заявок и листиков</Text>
+            <Text style={styles.heroPillText}>Заявки и листики сохраняются</Text>
           </View>
-          <Text style={styles.authTitle}>Байкал в наших руках</Text>
-          <Text style={styles.authText}>Создайте простой аккаунт: username и пароль. Так заявки, статусы и бонусы не потеряются при обновлениях.</Text>
+          <Text style={styles.authTitle}>{mode === 'register' ? 'Создайте профиль' : 'Войдите в профиль'}</Text>
+          <Text style={styles.authText}>Нужны только username и пароль. Контакты не показываются публично.</Text>
         </View>
       </View>
 
@@ -958,7 +1063,7 @@ function AuthScreen({
           <InfoRow icon="eye-off-outline" title="Контакты не публичны" text="В заявках виден служебный профиль, не личные данные." />
         </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -2103,10 +2208,143 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 18,
   },
+  authScrollInner: {
+    flexGrow: 1,
+    paddingBottom: 18,
+  },
   authScreen: {
     flex: 1,
     padding: 24,
     justifyContent: 'center',
+  },
+  onboardingTop: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  onboardingBrand: {
+    color: '#141414',
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  onboardingSkip: {
+    minHeight: 36,
+    borderRadius: 18,
+    backgroundColor: '#f2f3f5',
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onboardingSkipText: {
+    color: '#141414',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  onboardingCard: {
+    minHeight: 510,
+    borderRadius: 28,
+    overflow: 'hidden',
+    backgroundColor: '#0A3D44',
+    position: 'relative',
+  },
+  onboardingImage: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+  },
+  onboardingImageContent: {
+    flex: 1,
+    minHeight: 510,
+    padding: 22,
+    justifyContent: 'flex-end',
+    zIndex: 2,
+  },
+  onboardingIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  onboardingTitle: {
+    color: '#ffffff',
+    fontSize: 31,
+    lineHeight: 36,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  onboardingText: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+    marginTop: 9,
+  },
+  onboardingDots: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 9,
+  },
+  onboardingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d9dddf',
+  },
+  onboardingDotActive: {
+    width: 26,
+    backgroundColor: '#008F9A',
+  },
+  onboardingActions: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  onboardingSecondaryButton: {
+    minHeight: 50,
+    minWidth: 96,
+    borderRadius: 16,
+    backgroundColor: '#f2f3f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onboardingSecondaryText: {
+    color: '#141414',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  onboardingSecondaryTextDisabled: {
+    color: '#b5bbc0',
+  },
+  onboardingPrimaryButton: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  onboardingLoginLine: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  onboardingLoginText: {
+    color: '#008F9A',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
   },
   authHero: {
     minHeight: 292,
@@ -2136,6 +2374,20 @@ const styles = StyleSheet.create({
     minHeight: 292,
     padding: 18,
     justifyContent: 'flex-end',
+  },
+  authCompactHero: {
+    minHeight: 224,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#0A3D44',
+    position: 'relative',
+  },
+  authCompactHeroContent: {
+    flex: 1,
+    minHeight: 224,
+    padding: 18,
+    justifyContent: 'flex-end',
+    zIndex: 2,
   },
   authPanel: {
     borderRadius: 22,

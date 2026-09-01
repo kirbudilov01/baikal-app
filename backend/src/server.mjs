@@ -3,7 +3,7 @@ import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypt
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createSession, createUser, findSessionUser, findUserByUsername, readDb, updateDb } from './store.mjs';
+import { createSession, createUser, findSessionUser, findUserByUsername, listUsers, readDb, updateDb } from './store.mjs';
 import { assertCanTransition, createDomainError, publicStatus, reportStatuses } from './status-machine.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -273,6 +273,23 @@ function profileSummary(reports, rewardClaims = [], profileId = 'demo-profile') 
   };
 }
 
+function adminUsers(users, db) {
+  return users.map((user) => {
+    const profile = profileSummary(db.reports, db.rewardClaims, user.profileId);
+    const userReports = db.reports.filter((report) => report.profileId === user.profileId);
+    return {
+      ...user,
+      balance: profile.balance,
+      earned: profile.earned,
+      spent: profile.spent,
+      reports: userReports.length,
+      activeReports: userReports.filter((report) => !reportStatuses[report.status]?.terminal).length,
+      resolvedReports: userReports.filter((report) => report.status === 'resolved').length,
+      claimedRewards: profile.claimedRewards.length,
+    };
+  });
+}
+
 function createRewardCode(rewardId) {
   const suffix = randomUUID().slice(0, 6).toUpperCase();
   const prefix = rewardId
@@ -312,6 +329,7 @@ function adminPageHtml() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23008f9a'/%3E%3Cpath d='M32 12c7 9 13 17 13 26a13 13 0 1 1-26 0c0-9 6-17 13-26z' fill='white'/%3E%3C/svg%3E" />
   <title>Админка | Байкал в наших руках</title>
   <style>
     :root {
@@ -358,7 +376,7 @@ function adminPageHtml() {
       font-weight: 700;
       margin-top: 5px;
     }
-    .auth, .summary, .reports, .detail, .ops-hero {
+    .auth, .summary, .reports, .detail, .ops-hero, .users {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 20px;
@@ -508,6 +526,58 @@ function adminPageHtml() {
       font-weight: 850;
       margin-top: 8px;
     }
+    .users {
+      margin-top: 16px;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .section-head h2 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 27px;
+    }
+    .section-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 18px;
+      font-weight: 700;
+      max-width: 520px;
+    }
+    .user-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .user-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 13px;
+      background: #fff;
+    }
+    .user-name {
+      font-size: 17px;
+      line-height: 21px;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+    .user-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .user-metric {
+      border-radius: 12px;
+      background: #f6f8f8;
+      padding: 9px;
+    }
+    .user-metric strong { display: block; font-size: 18px; line-height: 22px; }
+    .user-metric span { color: var(--muted); font-size: 11px; font-weight: 800; }
     .detail h2 { margin: 0 0 4px; font-size: 22px; line-height: 27px; }
     .detail-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
     .photo {
@@ -540,6 +610,7 @@ function adminPageHtml() {
       .auth { width: 100%; min-width: 0; }
       .grid { grid-template-columns: 1fr; }
       .summary { grid-template-columns: repeat(2, 1fr); }
+      .user-grid { grid-template-columns: 1fr; }
       .ops-hero { grid-template-columns: 1fr; }
       .ops-live { justify-content: center; }
     }
@@ -552,10 +623,10 @@ function adminPageHtml() {
         <h1>Админка</h1>
         <div class="subtitle">Байкал в наших руках · модерация заявок</div>
       </div>
-      <div class="auth">
+      <form class="auth" id="authForm">
         <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password" />
         <button id="saveToken">Войти</button>
-      </div>
+      </form>
     </header>
 
     <section class="ops-hero">
@@ -583,6 +654,17 @@ function adminPageHtml() {
         <div class="empty">Выберите заявку</div>
       </aside>
     </main>
+
+    <section class="users">
+      <div class="section-head">
+        <div>
+          <h2>Пользователи</h2>
+          <div class="section-note">База аккаунтов: заявки, баланс листиков, списанные бонусы и последняя активность. Пароли и токены здесь не показываются.</div>
+        </div>
+        <button id="refreshUsers" class="secondary">Обновить базу</button>
+      </div>
+      <div id="userList" class="empty">Введите токен администратора</div>
+    </section>
   </div>
 
   <template id="statusOptions">${statusOptions}</template>
@@ -591,6 +673,7 @@ function adminPageHtml() {
     const state = {
       token: localStorage.getItem('baikalAdminToken') || '',
       reports: [],
+      users: [],
       summary: null,
       selectedId: null,
       filter: 'all',
@@ -633,7 +716,7 @@ function adminPageHtml() {
         ['Всего', summary.total || 0],
         ['Активные', summary.active || 0],
         ['Модерация', summary.byStatus?.moderation || 0],
-        ['Решено', summary.resolved || 0],
+        ['Пользователи', state.users.length || 0],
       ].map(([label, value]) => '<div class="stat"><strong>' + value + '</strong><span>' + label + '</span></div>').join('');
     }
 
@@ -689,13 +772,39 @@ function adminPageHtml() {
         '<div class="detail-section"><span class="label">История</span>' + events + '</div>';
     }
 
+    function renderUsers() {
+      const list = document.querySelector('#userList');
+      if (!state.users.length) {
+        list.className = 'empty';
+        list.textContent = state.token ? 'Пользователей пока нет' : 'Введите токен администратора';
+        return;
+      }
+
+      list.className = 'user-grid';
+      list.innerHTML = state.users.map((user) => {
+        return '<article class="user-card">' +
+          '<div class="user-name">@' + user.username + '</div>' +
+          '<div class="meta">' + user.profileId + '</div>' +
+          '<div class="meta">Создан: ' + formatDate(user.createdAt) + '</div>' +
+          '<div class="meta">Активность: ' + (user.lastSeenAt ? formatDate(user.lastSeenAt) : 'еще не было') + '</div>' +
+          '<div class="user-metrics">' +
+            '<div class="user-metric"><strong>' + user.balance + '</strong><span>листиков</span></div>' +
+            '<div class="user-metric"><strong>' + user.spent + '</strong><span>списано</span></div>' +
+            '<div class="user-metric"><strong>' + user.reports + '</strong><span>заявок</span></div>' +
+            '<div class="user-metric"><strong>' + user.activeReports + '</strong><span>активных</span></div>' +
+          '</div>' +
+        '</article>';
+      }).join('');
+    }
+
     function render() {
       renderSummary();
       renderReports();
       renderDetail();
+      renderUsers();
     }
 
-    async function loadReports() {
+    async function loadDashboard() {
       if (!state.token) {
         render();
         return;
@@ -703,17 +812,28 @@ function adminPageHtml() {
       const list = document.querySelector('#reportList');
       list.className = 'empty';
       list.textContent = 'Загрузка...';
+      const userList = document.querySelector('#userList');
+      userList.className = 'empty';
+      userList.textContent = 'Загрузка пользователей...';
       try {
-        const response = await fetch('/api/admin/reports', { headers: headers() });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить заявки');
-        state.reports = payload.reports || [];
-        state.summary = payload.summary || null;
+        const [reportsResponse, usersResponse] = await Promise.all([
+          fetch('/api/admin/reports', { headers: headers() }),
+          fetch('/api/admin/users', { headers: headers() }),
+        ]);
+        const reportsPayload = await reportsResponse.json();
+        const usersPayload = await usersResponse.json();
+        if (!reportsResponse.ok) throw new Error(reportsPayload.error || 'Не удалось загрузить заявки');
+        if (!usersResponse.ok) throw new Error(usersPayload.error || 'Не удалось загрузить пользователей');
+        state.reports = reportsPayload.reports || [];
+        state.summary = reportsPayload.summary || null;
+        state.users = usersPayload.users || [];
         state.selectedId = state.selectedId || state.reports[0]?.id || null;
         render();
       } catch (error) {
         list.className = 'error';
         list.textContent = error.message;
+        userList.className = 'error';
+        userList.textContent = error.message;
       }
     }
 
@@ -734,20 +854,22 @@ function adminPageHtml() {
         if (index >= 0) state.reports[index] = payload.report;
         message.className = 'ok';
         message.textContent = 'Статус обновлен';
-        await loadReports();
+        await loadDashboard();
       } catch (error) {
         message.className = 'error';
         message.textContent = error.message;
       }
     }
 
-    document.querySelector('#saveToken').addEventListener('click', () => {
+    document.querySelector('#authForm').addEventListener('submit', (event) => {
+      event.preventDefault();
       state.token = tokenInput.value.trim();
       localStorage.setItem('baikalAdminToken', state.token);
-      loadReports();
+      loadDashboard();
     });
 
-    document.querySelector('#refresh').addEventListener('click', loadReports);
+    document.querySelector('#refresh').addEventListener('click', loadDashboard);
+    document.querySelector('#refreshUsers').addEventListener('click', loadDashboard);
 
     document.querySelector('.toolbar').addEventListener('click', (event) => {
       const filter = event.target?.dataset?.filter;
@@ -769,7 +891,7 @@ function adminPageHtml() {
       changeStatus(state.selectedId, button.dataset.status);
     });
 
-    loadReports();
+    loadDashboard();
   </script>
 </body>
 </html>`;
@@ -1310,6 +1432,16 @@ async function route(request, response) {
     sendJson(response, 200, {
       summary: reportSummary(db.reports),
       reports: db.reports.map((report) => adminReportWithActions(report, db.events)),
+    });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/users') {
+    requireAdmin(request);
+    const db = await readDb();
+    const users = await listUsers();
+    sendJson(response, 200, {
+      users: adminUsers(users, db),
     });
     return;
   }

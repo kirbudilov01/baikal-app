@@ -12,6 +12,8 @@ const maxBodyBytes = Number(process.env.MAX_BODY_BYTES ?? 1_000_000);
 const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES ?? 6_000_000);
 const uploadDir = process.env.UPLOAD_DIR ?? join(__dirname, '..', 'data', 'uploads');
 const adminToken = process.env.ADMIN_TOKEN ?? '';
+const adminUsername = process.env.ADMIN_USERNAME ?? (process.env.NODE_ENV === 'production' ? '' : 'kolotilin');
+const adminPassword = process.env.ADMIN_PASSWORD ?? (process.env.NODE_ENV === 'production' ? '' : 'baikal');
 const supportEmail = process.env.SUPPORT_EMAIL ?? 'support@example.com';
 const legalOperatorName = process.env.LEGAL_OPERATOR_NAME ?? 'Оператор проекта «Байкал в наших руках»';
 const legalOperatorAddress = process.env.LEGAL_OPERATOR_ADDRESS ?? 'Укажите юридический адрес оператора';
@@ -144,6 +146,31 @@ function requireAdmin(request) {
   if (token !== adminToken) throw createDomainError(401, 'Admin authorization required');
 
   return request.headers['x-admin-id'] || 'admin:api';
+}
+
+function safeEqualText(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function validateAdminCredentials(payload) {
+  if (!adminToken) throw createDomainError(500, 'Admin access is not configured');
+  if (!adminUsername || !adminPassword) throw createDomainError(500, 'Admin login is not configured');
+
+  const username = normalizeUsername(payload.username);
+  const password = String(payload.password || '');
+  if (!safeEqualText(username, adminUsername) || !safeEqualText(password, adminPassword)) {
+    throw createDomainError(401, 'Неверный логин или пароль');
+  }
+
+  return {
+    token: adminToken,
+    admin: {
+      username: adminUsername,
+    },
+  };
 }
 
 function bearerToken(request) {
@@ -288,6 +315,32 @@ function adminUsers(users, db) {
       claimedRewards: profile.claimedRewards.length,
     };
   });
+}
+
+function publicRewardClaim(claim) {
+  const reward = rewardCatalog.find((item) => item.id === claim.rewardId);
+  return {
+    ...claim,
+    rewardTitle: reward?.title ?? claim.rewardId,
+    rewardPartner: reward?.partner ?? '',
+  };
+}
+
+async function adminDatabaseSnapshot() {
+  const db = await readDb();
+  const users = await listUsers();
+  return {
+    summary: {
+      reports: db.reports.length,
+      users: users.length,
+      promoCodes: db.rewardClaims.length,
+      activeReports: db.reports.filter((report) => !reportStatuses[report.status]?.terminal).length,
+    },
+    reports: db.reports.map((report) => adminReportWithActions(report, db.events)),
+    users: adminUsers(users, db),
+    promoCodes: db.rewardClaims.map(publicRewardClaim),
+    rewards: rewardCatalog,
+  };
 }
 
 function createRewardCode(rewardId) {
@@ -529,6 +582,14 @@ function adminPageHtml() {
     .users {
       margin-top: 16px;
     }
+    .promo, .database {
+      margin-top: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
     .section-head {
       display: flex;
       align-items: flex-start;
@@ -578,6 +639,37 @@ function adminPageHtml() {
     }
     .user-metric strong { display: block; font-size: 18px; line-height: 22px; }
     .user-metric span { color: var(--muted); font-size: 11px; font-weight: 800; }
+    .promo-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: #fff;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 13px;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    tr:last-child td { border-bottom: 0; }
     .detail h2 { margin: 0 0 4px; font-size: 22px; line-height: 27px; }
     .detail-section { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 14px; }
     .photo {
@@ -611,6 +703,7 @@ function adminPageHtml() {
       .grid { grid-template-columns: 1fr; }
       .summary { grid-template-columns: repeat(2, 1fr); }
       .user-grid { grid-template-columns: 1fr; }
+      .promo-form { grid-template-columns: 1fr; }
       .ops-hero { grid-template-columns: 1fr; }
       .ops-live { justify-content: center; }
     }
@@ -621,10 +714,11 @@ function adminPageHtml() {
     <header>
       <div>
         <h1>Админка</h1>
-        <div class="subtitle">Байкал в наших руках · модерация заявок</div>
+        <div class="subtitle">Байкал в наших руках · обращения, пользователи, промокоды</div>
       </div>
       <form class="auth" id="authForm">
-        <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password" />
+        <input id="adminLogin" type="text" placeholder="Логин" autocomplete="username" />
+        <input id="adminPassword" type="password" placeholder="Пароль" autocomplete="current-password" />
         <button id="saveToken">Войти</button>
       </form>
     </header>
@@ -632,9 +726,9 @@ function adminPageHtml() {
     <section class="ops-hero">
       <div>
         <div class="ops-hero-title">Очередь обращений</div>
-        <div class="ops-hero-text">Проверяйте фото, координаты и описание. Статусы двигаются только по разрешенной цепочке, чтобы мобильное приложение всегда показывало понятный следующий шаг.</div>
+        <div class="ops-hero-text">Проверяйте фото, координаты и описание, меняйте статус и выдавайте бонусы. Все изменения сразу видны в приложении.</div>
       </div>
-      <div class="ops-live">Live backend</div>
+      <div class="ops-live" id="adminState">Вход не выполнен</div>
     </section>
 
     <section class="summary" id="summary"></section>
@@ -648,7 +742,7 @@ function adminPageHtml() {
           <button class="secondary" data-filter="terminal">Закрытые</button>
           <button id="refresh" class="secondary">Обновить</button>
         </div>
-        <div id="reportList" class="empty">Введите токен администратора</div>
+        <div id="reportList" class="empty">Войдите как администратор</div>
       </section>
       <aside class="detail" id="detail">
         <div class="empty">Выберите заявку</div>
@@ -659,11 +753,37 @@ function adminPageHtml() {
       <div class="section-head">
         <div>
           <h2>Пользователи</h2>
-          <div class="section-note">База аккаунтов: заявки, баланс листиков, списанные бонусы и последняя активность. Пароли и токены здесь не показываются.</div>
+          <div class="section-note">База аккаунтов: заявки, баланс листиков, списанные бонусы и последняя активность. Приватные данные здесь не показываются.</div>
         </div>
         <button id="refreshUsers" class="secondary">Обновить базу</button>
       </div>
-      <div id="userList" class="empty">Введите токен администратора</div>
+      <div id="userList" class="empty">Войдите как администратор</div>
+    </section>
+
+    <section class="promo">
+      <div class="section-head">
+        <div>
+          <h2>Промокоды</h2>
+          <div class="section-note">Выдайте бонус конкретному пользователю. Код появится в базе и в истории бонусов пользователя.</div>
+        </div>
+      </div>
+      <div class="promo-form">
+        <label><span class="label">Пользователь</span><select id="promoUser"></select></label>
+        <label><span class="label">Бонус</span><select id="promoReward"></select></label>
+        <button id="createPromo">Создать промокод</button>
+      </div>
+      <div id="promoMessage"></div>
+      <div id="promoList" class="empty">Промокодов пока нет</div>
+    </section>
+
+    <section class="database">
+      <div class="section-head">
+        <div>
+          <h2>База</h2>
+          <div class="section-note">Операционный срез: пользователи, заявки и выданные промокоды. Приватные данные здесь не отображаются.</div>
+        </div>
+      </div>
+      <div id="dbView" class="empty">Войдите как администратор</div>
     </section>
   </div>
 
@@ -672,15 +792,18 @@ function adminPageHtml() {
   <script>
     const state = {
       token: localStorage.getItem('baikalAdminToken') || '',
+      db: null,
       reports: [],
       users: [],
+      rewards: [],
+      promoCodes: [],
       summary: null,
       selectedId: null,
       filter: 'all',
     };
 
-    const tokenInput = document.querySelector('#token');
-    tokenInput.value = state.token;
+    const loginInput = document.querySelector('#adminLogin');
+    const passwordInput = document.querySelector('#adminPassword');
 
     const statusLabels = {
       moderation: 'На модерации',
@@ -693,7 +816,7 @@ function adminPageHtml() {
     function headers() {
       return {
         'content-type': 'application/json',
-        'x-admin-token': state.token,
+        'authorization': 'Bearer ' + state.token,
         'x-admin-id': 'admin:web-panel',
       };
     }
@@ -712,6 +835,7 @@ function adminPageHtml() {
 
     function renderSummary() {
       const summary = state.summary || { total: 0, active: 0, resolved: 0, byStatus: {} };
+      document.querySelector('#adminState').textContent = state.token ? 'Админ вошел' : 'Вход не выполнен';
       document.querySelector('#summary').innerHTML = [
         ['Всего', summary.total || 0],
         ['Активные', summary.active || 0],
@@ -725,7 +849,7 @@ function adminPageHtml() {
       const reports = filteredReports();
       if (!reports.length) {
         list.className = 'empty';
-        list.textContent = state.token ? 'Заявок нет' : 'Введите токен администратора';
+        list.textContent = state.token ? 'Заявок нет' : 'Войдите как администратор';
         return;
       }
 
@@ -776,7 +900,7 @@ function adminPageHtml() {
       const list = document.querySelector('#userList');
       if (!state.users.length) {
         list.className = 'empty';
-        list.textContent = state.token ? 'Пользователей пока нет' : 'Введите токен администратора';
+        list.textContent = state.token ? 'Пользователей пока нет' : 'Войдите как администратор';
         return;
       }
 
@@ -797,11 +921,48 @@ function adminPageHtml() {
       }).join('');
     }
 
+    function renderPromoTools() {
+      const userSelect = document.querySelector('#promoUser');
+      const rewardSelect = document.querySelector('#promoReward');
+      const promoList = document.querySelector('#promoList');
+      userSelect.innerHTML = state.users.map((user) => '<option value="' + user.profileId + '">@' + user.username + ' · ' + user.balance + ' листиков</option>').join('');
+      rewardSelect.innerHTML = state.rewards.map((reward) => '<option value="' + reward.id + '">' + reward.title + ' · ' + reward.cost + ' листиков</option>').join('');
+
+      if (!state.promoCodes.length) {
+        promoList.className = 'empty';
+        promoList.textContent = state.token ? 'Промокодов пока нет' : 'Войдите как администратор';
+        return;
+      }
+
+      promoList.className = 'table-wrap';
+      promoList.innerHTML = '<table><thead><tr><th>Код</th><th>Пользователь</th><th>Бонус</th><th>Списано</th><th>Дата</th></tr></thead><tbody>' +
+        state.promoCodes.map((promo) => '<tr><td><strong>' + promo.code + '</strong></td><td>' + promo.profileId + '</td><td>' + promo.rewardTitle + '</td><td>' + promo.pointsSpent + '</td><td>' + formatDate(promo.createdAt) + '</td></tr>').join('') +
+      '</tbody></table>';
+    }
+
+    function renderDbView() {
+      const dbView = document.querySelector('#dbView');
+      if (!state.db) {
+        dbView.className = 'empty';
+        dbView.textContent = state.token ? 'База загружается' : 'Войдите как администратор';
+        return;
+      }
+
+      dbView.className = 'table-wrap';
+      dbView.innerHTML = '<table><thead><tr><th>Раздел</th><th>Всего</th><th>Что внутри</th></tr></thead><tbody>' +
+        '<tr><td>Пользователи</td><td>' + state.users.length + '</td><td>Аккаунты, балансы, активность</td></tr>' +
+        '<tr><td>Обращения</td><td>' + state.reports.length + '</td><td>Фото, координаты, статусы, история</td></tr>' +
+        '<tr><td>Промокоды</td><td>' + state.promoCodes.length + '</td><td>Выданные бонусные коды</td></tr>' +
+      '</tbody></table>';
+    }
+
     function render() {
       renderSummary();
       renderReports();
       renderDetail();
       renderUsers();
+      renderPromoTools();
+      renderDbView();
     }
 
     async function loadDashboard() {
@@ -816,17 +977,19 @@ function adminPageHtml() {
       userList.className = 'empty';
       userList.textContent = 'Загрузка пользователей...';
       try {
-        const [reportsResponse, usersResponse] = await Promise.all([
-          fetch('/api/admin/reports', { headers: headers() }),
-          fetch('/api/admin/users', { headers: headers() }),
-        ]);
-        const reportsPayload = await reportsResponse.json();
-        const usersPayload = await usersResponse.json();
-        if (!reportsResponse.ok) throw new Error(reportsPayload.error || 'Не удалось загрузить заявки');
-        if (!usersResponse.ok) throw new Error(usersPayload.error || 'Не удалось загрузить пользователей');
-        state.reports = reportsPayload.reports || [];
-        state.summary = reportsPayload.summary || null;
-        state.users = usersPayload.users || [];
+        const response = await fetch('/api/admin/db', { headers: headers() });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Не удалось загрузить данные');
+        state.db = payload;
+        state.reports = payload.reports || [];
+        state.summary = payload.summary ? {
+          total: payload.summary.reports || 0,
+          active: payload.summary.activeReports || 0,
+          byStatus: Object.fromEntries(['moderation', 'transferred', 'in_progress', 'resolved', 'rejected'].map((status) => [status, (payload.reports || []).filter((report) => report.status.code === status).length])),
+        } : null;
+        state.users = payload.users || [];
+        state.rewards = payload.rewards || [];
+        state.promoCodes = payload.promoCodes || [];
         state.selectedId = state.selectedId || state.reports[0]?.id || null;
         render();
       } catch (error) {
@@ -834,6 +997,49 @@ function adminPageHtml() {
         list.textContent = error.message;
         userList.className = 'error';
         userList.textContent = error.message;
+      }
+    }
+
+    async function loginAdmin() {
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username: loginInput.value, password: passwordInput.value }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось войти');
+      state.token = payload.token;
+      localStorage.setItem('baikalAdminToken', state.token);
+      passwordInput.value = '';
+      await loadDashboard();
+    }
+
+    async function createPromoCode() {
+      const message = document.querySelector('#promoMessage');
+      message.className = 'hint';
+      message.textContent = 'Создаем код...';
+      try {
+        const response = await fetch('/api/admin/promo-codes', {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({
+            profileId: document.querySelector('#promoUser').value,
+            rewardId: document.querySelector('#promoReward').value,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Не удалось создать промокод');
+        message.className = 'ok';
+        message.textContent = 'Промокод создан: ' + payload.promoCode.code;
+        state.db = payload.db;
+        state.reports = payload.db.reports || [];
+        state.users = payload.db.users || [];
+        state.rewards = payload.db.rewards || [];
+        state.promoCodes = payload.db.promoCodes || [];
+        render();
+      } catch (error) {
+        message.className = 'error';
+        message.textContent = error.message;
       }
     }
 
@@ -863,13 +1069,14 @@ function adminPageHtml() {
 
     document.querySelector('#authForm').addEventListener('submit', (event) => {
       event.preventDefault();
-      state.token = tokenInput.value.trim();
-      localStorage.setItem('baikalAdminToken', state.token);
-      loadDashboard();
+      loginAdmin().catch((error) => {
+        document.querySelector('#adminState').textContent = error.message;
+      });
     });
 
     document.querySelector('#refresh').addEventListener('click', loadDashboard);
     document.querySelector('#refreshUsers').addEventListener('click', loadDashboard);
+    document.querySelector('#createPromo').addEventListener('click', createPromoCode);
 
     document.querySelector('.toolbar').addEventListener('click', (event) => {
       const filter = event.target?.dataset?.filter;
@@ -1216,6 +1423,12 @@ async function route(request, response) {
     return;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/admin/login') {
+    const payload = await readJson(request);
+    sendJson(response, 200, validateAdminCredentials(payload));
+    return;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/auth/me') {
     const user = await userFromRequest(request);
     if (!user) throw createDomainError(401, 'Authorization required');
@@ -1374,7 +1587,7 @@ async function route(request, response) {
   if (request.method === 'POST' && statusMatch) {
     const reportId = statusMatch[1];
     const payload = await readJson(request);
-    const adminId = requireAdmin(request);
+    requireAdmin(request);
 
     const nextDb = await updateDb((db) => {
       const index = db.reports.findIndex((report) => report.id === reportId);
@@ -1442,6 +1655,49 @@ async function route(request, response) {
     const users = await listUsers();
     sendJson(response, 200, {
       users: adminUsers(users, db),
+    });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/admin/db') {
+    requireAdmin(request);
+    sendJson(response, 200, await adminDatabaseSnapshot());
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/admin/promo-codes') {
+    const payload = await readJson(request);
+    const adminId = requireAdmin(request);
+    const profileId = String(payload.profileId || '').trim();
+    const rewardId = String(payload.rewardId || '').trim();
+    const reward = rewardCatalog.find((item) => item.id === rewardId);
+    if (!profileId) throw createDomainError(400, 'Выберите пользователя');
+    if (!reward) throw createDomainError(404, 'Бонус не найден');
+
+    const nextDb = await updateDb((db) => {
+      const existingClaim = db.rewardClaims.find((claim) => claim.profileId === profileId && claim.rewardId === rewardId);
+      if (existingClaim) throw createDomainError(409, 'Промокод для этого бонуса уже выдан');
+
+      const now = new Date().toISOString();
+      const claim = {
+        id: randomUUID(),
+        profileId,
+        rewardId,
+        code: createRewardCode(rewardId),
+        pointsSpent: reward.cost,
+        status: 'issued',
+        createdAt: now,
+      };
+
+      return {
+        rewardClaims: [claim, ...db.rewardClaims],
+      };
+    });
+
+    const claim = nextDb.rewardClaims.find((item) => item.profileId === profileId && item.rewardId === rewardId);
+    sendJson(response, 201, {
+      promoCode: publicRewardClaim(claim),
+      db: await adminDatabaseSnapshot(),
     });
     return;
   }

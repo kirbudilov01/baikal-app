@@ -149,6 +149,11 @@ type AdminUser = {
   claimedRewards: number;
 };
 
+type AdminPromoCode = RewardClaim & {
+  rewardTitle: string;
+  rewardPartner: string;
+};
+
 type AuthUser = {
   id: string;
   username: string;
@@ -216,7 +221,7 @@ const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
 const AUTH_STORAGE_KEY = 'baikal-auth-v1';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
-const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
+const INITIAL_ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
 const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
 const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
@@ -445,6 +450,9 @@ export default function App() {
   const [rewardCatalog, setRewardCatalog] = useState(initialRewards);
   const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [adminPromoCodes, setAdminPromoCodes] = useState<AdminPromoCode[]>([]);
+  const [adminAuthToken, setAdminAuthToken] = useState(INITIAL_ADMIN_TOKEN);
+  const [adminAuthMessage, setAdminAuthMessage] = useState('');
   const [profileId, setProfileId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -458,7 +466,7 @@ export default function App() {
   const [pickedLocationLabel, setPickedLocationLabel] = useState('');
   const [selectedReportId, setSelectedReportId] = useState(initialReports[0].id);
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const [syncMessage, setSyncMessage] = useState('Локальный режим: backend пока не подключен');
+  const [syncMessage, setSyncMessage] = useState('Данные еще не обновлялись');
   const [isSyncing, setIsSyncing] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -567,37 +575,65 @@ export default function App() {
       if (apiReports[0]) setSelectedReportId(apiReports[0].id);
       setRewardCatalog(rewardsPayload.rewards.map(rewardFromApi));
       setProfileSummary(profilePayload.profile);
-      setSyncMessage(apiReports.length > 0 ? 'Backend подключен: заявки синхронизированы' : 'Backend подключен: заявок пока нет');
+      setSyncMessage(apiReports.length > 0 ? 'Данные обновлены' : 'Заявок пока нет');
     } catch {
-      setSyncMessage('Локальный режим: запустите backend для синхронизации');
+      setSyncMessage('Нет связи с сервером. Показываем сохраненные данные.');
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const loadAdminUsersFromApi = async () => {
-    if (!ADMIN_ENABLED || !ADMIN_TOKEN) {
+  const loadAdminDashboardFromApi = async () => {
+    if (!ADMIN_ENABLED || !adminAuthToken) {
       setAdminUsers([]);
+      setAdminPromoCodes([]);
       return;
     }
 
     try {
-      const payload = await requestJson<{ users: AdminUser[] }>('/api/admin/users', {
+      const payload = await requestJson<{ users: AdminUser[]; promoCodes: AdminPromoCode[]; rewards: ApiReward[] }>('/api/admin/db', {
         headers: {
-          'x-admin-token': ADMIN_TOKEN,
+          authorization: `Bearer ${adminAuthToken}`,
         },
       });
       setAdminUsers(payload.users);
+      setAdminPromoCodes(payload.promoCodes);
+      setRewardCatalog(payload.rewards.map(rewardFromApi));
     } catch (error) {
       setAdminUsers([]);
+      setAdminPromoCodes([]);
       setSyncMessage(error instanceof Error ? error.message : 'Не удалось загрузить пользователей');
     }
   };
 
   useEffect(() => {
     loadReportsFromApi();
-    loadAdminUsersFromApi();
-  }, [authToken, profileId]);
+    loadAdminDashboardFromApi();
+  }, [authToken, profileId, adminAuthToken]);
+
+  const submitAdminLogin = async (username: string, password: string) => {
+    setAdminAuthMessage('');
+    const payload = await requestJson<{ token: string }>('/api/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    setAdminAuthToken(payload.token);
+    setSyncMessage('Админка подключена');
+  };
+
+  const createAdminPromoCode = async (profileId: string, rewardId: string) => {
+    const payload = await requestJson<{ db: { users: AdminUser[]; promoCodes: AdminPromoCode[]; rewards: ApiReward[] } }>('/api/admin/promo-codes', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${adminAuthToken}`,
+      },
+      body: JSON.stringify({ profileId, rewardId }),
+    });
+    setAdminUsers(payload.db.users);
+    setAdminPromoCodes(payload.db.promoCodes);
+    setRewardCatalog(payload.db.rewards.map(rewardFromApi));
+    setSyncMessage('Промокод создан');
+  };
 
   const completeAuth = async (payload: AuthPayload) => {
     setAuthToken(payload.token);
@@ -703,9 +739,9 @@ export default function App() {
         }),
       });
       nextReport = reportFromApi(payload.report);
-      setSyncMessage('Заявка отправлена в backend');
+      setSyncMessage('Заявка отправлена');
     } catch {
-      setSyncMessage('Backend недоступен: заявка сохранена локально');
+      setSyncMessage('Нет связи с сервером. Заявка сохранена на устройстве.');
     }
 
     setReports([nextReport, ...reports]);
@@ -742,7 +778,7 @@ export default function App() {
         evidenceScore: Math.min(98, report.evidenceScore + 6),
       };
       setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
-      setSyncMessage('Backend недоступен: подтверждение учтено локально');
+      setSyncMessage('Нет связи с сервером. Подтверждение сохранено на устройстве.');
     }
   };
 
@@ -856,20 +892,29 @@ export default function App() {
             <AdminScreen
               reports={reports}
               users={adminUsers}
+              rewards={rewardCatalog}
+              promoCodes={adminPromoCodes}
               syncMessage={syncMessage}
               isSyncing={isSyncing}
-              adminReady={Boolean(ADMIN_TOKEN)}
+              adminReady={Boolean(adminAuthToken)}
+              authMessage={adminAuthMessage}
+              onAdminLogin={(username, password) =>
+                submitAdminLogin(username, password).catch((error) =>
+                  setAdminAuthMessage(error instanceof Error ? error.message : 'Не удалось войти'),
+                )
+              }
               onRefresh={() => {
                 loadReportsFromApi();
-                loadAdminUsersFromApi();
+                loadAdminDashboardFromApi();
               }}
+              onCreatePromoCode={createAdminPromoCode}
               onStatusChange={async (report, statusCode) => {
                 try {
                   const payload = await requestJson<{ report: ApiReport }>(`/api/admin/reports/${report.publicId}/status`, {
                     method: 'POST',
                     headers: {
                       'x-admin-id': 'admin:mobile-web',
-                      ...(ADMIN_TOKEN ? { 'x-admin-token': ADMIN_TOKEN } : {}),
+                      ...(adminAuthToken ? { authorization: `Bearer ${adminAuthToken}` } : {}),
                     },
                     body: JSON.stringify({ status: statusCode }),
                   });
@@ -878,7 +923,7 @@ export default function App() {
                   setSelectedReportId(updated.id);
                   setSyncMessage(`Статус ${updated.publicId}: ${updated.status}`);
                   loadReportsFromApi();
-                  loadAdminUsersFromApi();
+                  loadAdminDashboardFromApi();
                 } catch (error) {
                   setSyncMessage(error instanceof Error ? error.message : 'Не удалось сменить статус');
                 }
@@ -1647,25 +1692,42 @@ function ProfileScreen({
 function AdminScreen({
   reports,
   users,
+  rewards,
+  promoCodes,
   syncMessage,
   isSyncing,
   adminReady,
+  authMessage,
+  onAdminLogin,
+  onCreatePromoCode,
   onRefresh,
   onStatusChange,
 }: {
   reports: Report[];
   users: AdminUser[];
+  rewards: Reward[];
+  promoCodes: AdminPromoCode[];
   syncMessage: string;
   isSyncing: boolean;
   adminReady: boolean;
+  authMessage: string;
+  onAdminLogin: (username: string, password: string) => void;
+  onCreatePromoCode: (profileId: string, rewardId: string) => Promise<void>;
   onRefresh: () => void;
   onStatusChange: (report: Report, status: ReportStatusCode) => void;
 }) {
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [selectedPromoProfileId, setSelectedPromoProfileId] = useState('');
+  const [selectedPromoRewardId, setSelectedPromoRewardId] = useState('');
+  const [promoMessage, setPromoMessage] = useState('');
   const activeReports = reports.filter((report) => report.statusCode !== 'resolved' && report.statusCode !== 'rejected');
   const moderationCount = reports.filter((report) => report.statusCode === 'moderation').length;
   const resolvedCount = reports.filter((report) => report.statusCode === 'resolved').length;
   const totalBalance = users.reduce((sum, user) => sum + user.balance, 0);
   const totalSpent = users.reduce((sum, user) => sum + user.spent, 0);
+  const promoProfileId = selectedPromoProfileId || users[0]?.profileId || '';
+  const promoRewardId = selectedPromoRewardId || rewards[0]?.id || '';
 
   return (
     <View style={styles.screen}>
@@ -1673,13 +1735,45 @@ function AdminScreen({
       <View style={styles.adminNotice}>
         <MaterialCommunityIcons name={adminReady ? 'server-network' : 'shield-alert-outline'} size={20} color="#00736F" />
         <View style={styles.rowCopy}>
-          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : adminReady ? 'Контур управления' : 'Нужен ADMIN_TOKEN'}</Text>
-          <Text style={styles.adminNoticeText}>{adminReady ? syncMessage : 'Для мобильной админки включите EXPO_PUBLIC_ADMIN_TOKEN в admin-сборке.'}</Text>
+          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : adminReady ? 'Контур управления' : 'Войдите в админку'}</Text>
+          <Text style={styles.adminNoticeText}>{adminReady ? syncMessage : 'После входа появятся пользователи, заявки и управление статусами.'}</Text>
         </View>
         <Pressable style={styles.adminRefreshButton} onPress={onRefresh}>
           <MaterialCommunityIcons name="refresh" size={18} color="#141414" />
         </Pressable>
       </View>
+
+      {!adminReady ? (
+        <View style={styles.adminLoginPanel}>
+          <Text style={styles.authLabel}>Логин</Text>
+          <TextInput
+            value={adminUsername}
+            onChangeText={setAdminUsername}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="логин администратора"
+            placeholderTextColor="#8b8b8b"
+            style={styles.authInput}
+          />
+          <Text style={styles.authLabel}>Пароль</Text>
+          <TextInput
+            value={adminPassword}
+            onChangeText={setAdminPassword}
+            secureTextEntry
+            placeholder="пароль"
+            placeholderTextColor="#8b8b8b"
+            style={styles.authInput}
+          />
+          {authMessage ? <Text style={styles.authError}>{authMessage}</Text> : null}
+          <Pressable
+            style={[styles.primaryButton, (!adminUsername.trim() || !adminPassword) && styles.primaryButtonDisabled]}
+            disabled={!adminUsername.trim() || !adminPassword}
+            onPress={() => onAdminLogin(adminUsername.trim().toLowerCase(), adminPassword)}
+          >
+            <Text style={styles.primaryButtonText}>Войти</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Модерация" value={`${moderationCount}`} />
@@ -1693,7 +1787,7 @@ function AdminScreen({
           <View style={styles.adminEmptyCard}>
             <MaterialCommunityIcons name="account-search-outline" size={22} color="#6b7280" />
             <Text style={styles.adminEmptyTitle}>{adminReady ? 'Пользователей пока нет' : 'База пользователей закрыта'}</Text>
-            <Text style={styles.adminEmptyText}>{adminReady ? 'После регистрации аккаунты появятся здесь.' : 'Нужен админ-токен в окружении сборки.'}</Text>
+            <Text style={styles.adminEmptyText}>{adminReady ? 'После регистрации аккаунты появятся здесь.' : 'Войдите, чтобы увидеть аккаунты и балансы.'}</Text>
           </View>
         )}
       </View>
@@ -1701,7 +1795,65 @@ function AdminScreen({
       <View style={styles.summaryGrid}>
         <SummaryCell label="Листики" value={`${totalBalance}`} />
         <SummaryCell label="Списано" value={`${totalSpent}`} />
-        <SummaryCell label="Бонусы" value={`${users.reduce((sum, user) => sum + user.claimedRewards, 0)}`} />
+        <SummaryCell label="Промокоды" value={`${promoCodes.length}`} />
+      </View>
+
+      <SectionHeader title="Промокоды" action={`${promoCodes.length}`} />
+      <View style={styles.adminPromoPanel}>
+        <Text style={styles.adminPickerTitle}>Кому выдать</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminChipRow}>
+          {users.map((user) => {
+            const active = promoProfileId === user.profileId;
+            return (
+              <Pressable key={user.id} style={[styles.chip, active && styles.chipActive]} onPress={() => setSelectedPromoProfileId(user.profileId)}>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>@{user.username}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        <Text style={styles.adminPickerTitle}>Какой бонус</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminChipRow}>
+          {rewards.map((reward) => {
+            const active = promoRewardId === reward.id;
+            return (
+              <Pressable key={reward.id} style={[styles.chip, active && styles.chipActive]} onPress={() => setSelectedPromoRewardId(reward.id)}>
+                <MaterialCommunityIcons name={reward.icon} size={16} color={active ? '#ffffff' : '#6b7280'} />
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{reward.title}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+        {promoMessage ? <Text style={styles.inlineHint}>{promoMessage}</Text> : null}
+        <Pressable
+          style={[styles.primaryButton, (!adminReady || !promoProfileId || !promoRewardId) && styles.primaryButtonDisabled]}
+          disabled={!adminReady || !promoProfileId || !promoRewardId}
+          onPress={() => {
+            setPromoMessage('');
+            onCreatePromoCode(promoProfileId, promoRewardId)
+              .then(() => setPromoMessage('Промокод создан'))
+              .catch((error) => setPromoMessage(error instanceof Error ? error.message : 'Не удалось создать промокод'));
+          }}
+        >
+          <Text style={styles.primaryButtonText}>Создать промокод</Text>
+        </Pressable>
+        <View style={styles.adminPromoList}>
+          {promoCodes.slice(0, 4).map((promo) => (
+            <View key={promo.id} style={styles.adminPromoRow}>
+              <View style={styles.rowCopy}>
+                <Text style={styles.adminPromoCode}>{promo.code}</Text>
+                <Text style={styles.adminUserMeta}>{promo.rewardTitle} · {promo.profileId}</Text>
+              </View>
+              <MiniMetric label="списано" value={`${promo.pointsSpent}`} />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <SectionHeader title="База" action="срез" />
+      <View style={styles.adminDbPanel}>
+        <InfoRow icon="account-group-outline" title="Пользователи" text={`${users.length} аккаунтов в базе`} />
+        <InfoRow icon="clipboard-text-outline" title="Обращения" text={`${reports.length} заявок со статусами и координатами`} />
+        <InfoRow icon="ticket-percent-outline" title="Промокоды" text={`${promoCodes.length} выданных кодов`} />
       </View>
 
       <SectionHeader title="Очередь заявок" action={`${reports.length}`} />
@@ -3634,6 +3786,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '700',
   },
+  adminLoginPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
+    marginBottom: 12,
+  },
   adminRefreshButton: {
     width: 36,
     height: 36,
@@ -3757,6 +3915,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+  },
+  adminPromoPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 12,
+    marginBottom: 12,
+  },
+  adminPickerTitle: {
+    color: '#141414',
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  adminChipRow: {
+    gap: 8,
+    paddingBottom: 12,
+  },
+  adminPromoList: {
+    gap: 7,
+    marginTop: 10,
+  },
+  adminPromoRow: {
+    minHeight: 64,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  adminPromoCode: {
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+    letterSpacing: 0,
+  },
+  adminDbPanel: {
+    borderRadius: 18,
+    backgroundColor: '#f5f6f7',
+    padding: 6,
+    marginBottom: 12,
   },
   adminActionButton: {
     minHeight: 36,

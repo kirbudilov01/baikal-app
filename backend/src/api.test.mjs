@@ -32,6 +32,8 @@ async function withServer(callback) {
       PORT: String(port),
       DB_PATH: join(dataDir, 'test.sqlite'),
       ADMIN_TOKEN: 'test-token',
+      ADMIN_USERNAME: 'kolotilin',
+      ADMIN_PASSWORD: 'baikal',
       ALLOWED_ORIGINS: 'http://localhost:4173',
       SUPPORT_EMAIL: 'support@example.com',
       LEGAL_OPERATOR_NAME: 'Тестовый оператор',
@@ -133,6 +135,14 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     const unauthAdmin = await fetch(`${baseUrl}/api/admin/reports`);
     assert.equal(unauthAdmin.status, 401);
 
+    const adminLogin = await fetch(`${baseUrl}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'kolotilin', password: 'baikal' }),
+    }).then((response) => response.json());
+
+    assert.equal(adminLogin.token, 'test-token');
+
     const created = await fetch(`${baseUrl}/api/reports`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${loggedIn.token}` },
@@ -167,7 +177,7 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
 
     const adminUsers = await fetch(`${baseUrl}/api/admin/users`, {
-      headers: { 'x-admin-token': 'test-token' },
+      headers: { authorization: `Bearer ${adminLogin.token}` },
     }).then((response) => response.json());
 
     const adminUser = adminUsers.users.find((user) => user.id === registered.user.id);
@@ -176,5 +186,31 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     assert.equal(adminUser.reports, 1);
     assert.equal(adminUser.balance > 0, true);
     assert.equal('passwordHash' in adminUser, false);
+
+    const adminDb = await fetch(`${baseUrl}/api/admin/db`, {
+      headers: { authorization: `Bearer ${adminLogin.token}` },
+    }).then((response) => response.json());
+
+    assert.equal(adminDb.users.some((user) => user.id === registered.user.id), true);
+    assert.equal(adminDb.rewards.length, 3);
+    const promoCodeCountBefore = adminDb.promoCodes.length;
+    assert.equal(promoCodeCountBefore, 2);
+
+    const promo = await fetch(`${baseUrl}/api/admin/promo-codes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminLogin.token}` },
+      body: JSON.stringify({ profileId: registered.user.profileId, rewardId: rewards.rewards[1].id }),
+    }).then((response) => response.json());
+
+    assert.match(promo.promoCode.code, /^BAIKAL-/);
+    assert.equal(promo.promoCode.profileId, registered.user.profileId);
+    assert.equal(promo.db.promoCodes.length, promoCodeCountBefore + 1);
+
+    const repeatedPromo = await fetch(`${baseUrl}/api/admin/promo-codes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminLogin.token}` },
+      body: JSON.stringify({ profileId: registered.user.profileId, rewardId: rewards.rewards[1].id }),
+    });
+    assert.equal(repeatedPromo.status, 409);
   });
 });

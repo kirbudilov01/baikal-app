@@ -134,6 +134,21 @@ type ProfileSummary = {
   nextReward: ApiReward | null;
 };
 
+type AdminUser = {
+  id: string;
+  username: string;
+  profileId: string;
+  createdAt: string;
+  lastSeenAt: string | null;
+  balance: number;
+  earned: number;
+  spent: number;
+  reports: number;
+  activeReports: number;
+  resolvedReports: number;
+  claimedRewards: number;
+};
+
 type AuthUser = {
   id: string;
   username: string;
@@ -429,6 +444,7 @@ export default function App() {
   const [reports, setReports] = useState(initialReports);
   const [rewardCatalog, setRewardCatalog] = useState(initialRewards);
   const [profileSummary, setProfileSummary] = useState<ProfileSummary | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -559,8 +575,28 @@ export default function App() {
     }
   };
 
+  const loadAdminUsersFromApi = async () => {
+    if (!ADMIN_ENABLED || !ADMIN_TOKEN) {
+      setAdminUsers([]);
+      return;
+    }
+
+    try {
+      const payload = await requestJson<{ users: AdminUser[] }>('/api/admin/users', {
+        headers: {
+          'x-admin-token': ADMIN_TOKEN,
+        },
+      });
+      setAdminUsers(payload.users);
+    } catch (error) {
+      setAdminUsers([]);
+      setSyncMessage(error instanceof Error ? error.message : 'Не удалось загрузить пользователей');
+    }
+  };
+
   useEffect(() => {
     loadReportsFromApi();
+    loadAdminUsersFromApi();
   }, [authToken, profileId]);
 
   const completeAuth = async (payload: AuthPayload) => {
@@ -819,9 +855,14 @@ export default function App() {
           {ADMIN_ENABLED && activeTab === 'admin' && (
             <AdminScreen
               reports={reports}
+              users={adminUsers}
               syncMessage={syncMessage}
               isSyncing={isSyncing}
-              onRefresh={loadReportsFromApi}
+              adminReady={Boolean(ADMIN_TOKEN)}
+              onRefresh={() => {
+                loadReportsFromApi();
+                loadAdminUsersFromApi();
+              }}
               onStatusChange={async (report, statusCode) => {
                 try {
                   const payload = await requestJson<{ report: ApiReport }>(`/api/admin/reports/${report.publicId}/status`, {
@@ -836,6 +877,8 @@ export default function App() {
                   setReports((items) => items.map((item) => (item.publicId === updated.publicId ? updated : item)));
                   setSelectedReportId(updated.id);
                   setSyncMessage(`Статус ${updated.publicId}: ${updated.status}`);
+                  loadReportsFromApi();
+                  loadAdminUsersFromApi();
                 } catch (error) {
                   setSyncMessage(error instanceof Error ? error.message : 'Не удалось сменить статус');
                 }
@@ -1152,8 +1195,18 @@ function ReportScreen({
     }
 
     const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    onPickLocation({ latitude: current.coords.latitude, longitude: current.coords.longitude });
-    onPickLocationLabel('Текущее местоположение');
+    const coordinate = { latitude: current.coords.latitude, longitude: current.coords.longitude };
+    let readableLabel = 'Мое место на карте';
+    try {
+      const [place] = await Location.reverseGeocodeAsync(coordinate);
+      const parts = [place?.city, place?.district, place?.street || place?.name].filter(Boolean);
+      if (parts.length > 0) readableLabel = parts.join(', ');
+    } catch {
+      readableLabel = 'Мое место на карте';
+    }
+    onPickLocation(coordinate);
+    onPickLocationLabel(readableLabel);
+    setFormMessage('Поставили точку на карте. Можно уточнить ее вручную.');
     setMapPickerOpen(true);
   };
 
@@ -1240,7 +1293,10 @@ function ReportScreen({
           pickedLocationLabel={pickedLocationLabel}
           mapPickerOpen={mapPickerOpen}
           onUseCurrentLocation={useCurrentLocation}
-          onOpenMap={() => setMapPickerOpen(true)}
+          onOpenMap={() => {
+            setFormMessage('Выберите точку на карте ниже.');
+            setMapPickerOpen(true);
+          }}
           onChoosePoint={chooseMapPoint}
         />
       </StepBlock>
@@ -1590,29 +1646,35 @@ function ProfileScreen({
 
 function AdminScreen({
   reports,
+  users,
   syncMessage,
   isSyncing,
+  adminReady,
   onRefresh,
   onStatusChange,
 }: {
   reports: Report[];
+  users: AdminUser[];
   syncMessage: string;
   isSyncing: boolean;
+  adminReady: boolean;
   onRefresh: () => void;
   onStatusChange: (report: Report, status: ReportStatusCode) => void;
 }) {
   const activeReports = reports.filter((report) => report.statusCode !== 'resolved' && report.statusCode !== 'rejected');
   const moderationCount = reports.filter((report) => report.statusCode === 'moderation').length;
   const resolvedCount = reports.filter((report) => report.statusCode === 'resolved').length;
+  const totalBalance = users.reduce((sum, user) => sum + user.balance, 0);
+  const totalSpent = users.reduce((sum, user) => sum + user.spent, 0);
 
   return (
     <View style={styles.screen}>
       <AppHeader title="Админка" rightText={`${activeReports.length} активных`} />
       <View style={styles.adminNotice}>
-        <MaterialCommunityIcons name="server-network" size={20} color="#00736F" />
+        <MaterialCommunityIcons name={adminReady ? 'server-network' : 'shield-alert-outline'} size={20} color="#00736F" />
         <View style={styles.rowCopy}>
-          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : 'Контур управления'}</Text>
-          <Text style={styles.adminNoticeText}>{syncMessage}</Text>
+          <Text style={styles.adminNoticeTitle}>{isSyncing ? 'Синхронизация...' : adminReady ? 'Контур управления' : 'Нужен ADMIN_TOKEN'}</Text>
+          <Text style={styles.adminNoticeText}>{adminReady ? syncMessage : 'Для мобильной админки включите EXPO_PUBLIC_ADMIN_TOKEN в admin-сборке.'}</Text>
         </View>
         <Pressable style={styles.adminRefreshButton} onPress={onRefresh}>
           <MaterialCommunityIcons name="refresh" size={18} color="#141414" />
@@ -1621,24 +1683,74 @@ function AdminScreen({
 
       <View style={styles.summaryGrid}>
         <SummaryCell label="Модерация" value={`${moderationCount}`} />
-        <SummaryCell label="В работе" value={`${activeReports.length}`} />
+        <SummaryCell label="Активные" value={`${activeReports.length}`} />
         <SummaryCell label="Решено" value={`${resolvedCount}`} />
       </View>
 
+      <SectionHeader title="Пользователи" action={`${users.length}`} />
+      <View style={styles.adminUserGrid}>
+        {users.length > 0 ? users.slice(0, 6).map((user) => <AdminUserCard key={user.id} user={user} />) : (
+          <View style={styles.adminEmptyCard}>
+            <MaterialCommunityIcons name="account-search-outline" size={22} color="#6b7280" />
+            <Text style={styles.adminEmptyTitle}>{adminReady ? 'Пользователей пока нет' : 'База пользователей закрыта'}</Text>
+            <Text style={styles.adminEmptyText}>{adminReady ? 'После регистрации аккаунты появятся здесь.' : 'Нужен админ-токен в окружении сборки.'}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.summaryGrid}>
+        <SummaryCell label="Листики" value={`${totalBalance}`} />
+        <SummaryCell label="Списано" value={`${totalSpent}`} />
+        <SummaryCell label="Бонусы" value={`${users.reduce((sum, user) => sum + user.claimedRewards, 0)}`} />
+      </View>
+
+      <SectionHeader title="Очередь заявок" action={`${reports.length}`} />
       <View style={styles.listPanel}>
         {reports.map((report) => (
-          <AdminReportCard key={report.publicId} report={report} onStatusChange={onStatusChange} />
+          <AdminReportCard key={report.publicId} report={report} adminReady={adminReady} onStatusChange={onStatusChange} />
         ))}
       </View>
     </View>
   );
 }
 
+function AdminUserCard({ user }: { user: AdminUser }) {
+  return (
+    <View style={styles.adminUserCard}>
+      <View style={styles.adminUserHeader}>
+        <View style={styles.adminUserAvatar}>
+          <Text style={styles.adminUserAvatarText}>{user.username.slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={styles.rowCopy}>
+          <Text style={styles.adminUserName}>@{user.username}</Text>
+          <Text style={styles.adminUserMeta} numberOfLines={1}>{user.profileId}</Text>
+        </View>
+      </View>
+      <View style={styles.adminUserMetrics}>
+        <MiniMetric label="листики" value={`${user.balance}`} />
+        <MiniMetric label="заявки" value={`${user.reports}`} />
+        <MiniMetric label="активно" value={`${user.activeReports}`} />
+      </View>
+    </View>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.adminMiniMetric}>
+      <Text style={styles.adminMiniMetricValue}>{value}</Text>
+      <Text style={styles.adminMiniMetricLabel}>{label}</Text>
+    </View>
+  );
+}
+
 function AdminReportCard({
   report,
+  adminReady,
   onStatusChange,
 }: {
   report: Report;
+  adminReady: boolean;
   onStatusChange: (report: Report, status: ReportStatusCode) => void;
 }) {
   const actions: Array<{ status: ReportStatusCode; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [];
@@ -1664,14 +1776,17 @@ function AdminReportCard({
           <Text style={styles.adminCardTitle}>{report.title}</Text>
           <Text style={styles.reportMeta}>{report.location} · {report.category} · {report.date}</Text>
         </View>
-        <View style={[styles.statusPill, { backgroundColor: getStatusPalette(report.status).bg }]}>
-          <Text style={[styles.statusText, { color: getStatusPalette(report.status).text }]}>{report.status}</Text>
-        </View>
+        <StatusPill status={report.status} />
       </View>
       <Text style={styles.adminCardText}>{report.nextStep}</Text>
       <View style={styles.adminActions}>
         {actions.length > 0 ? actions.map((action) => (
-          <Pressable key={action.status} style={styles.adminActionButton} onPress={() => onStatusChange(report, action.status)}>
+          <Pressable
+            key={action.status}
+            style={[styles.adminActionButton, !adminReady && styles.adminActionButtonDisabled]}
+            disabled={!adminReady}
+            onPress={() => onStatusChange(report, action.status)}
+          >
             <MaterialCommunityIcons name={action.icon} size={16} color="#141414" />
             <Text style={styles.adminActionText}>{action.label}</Text>
           </Pressable>
@@ -2069,17 +2184,13 @@ function SegmentedControl({ value, onChange }: { value: ReportFilter; onChange: 
 }
 
 function ReportRow({ report, selected }: { report: Report; selected?: boolean }) {
-  const palette = getStatusPalette(report.status);
-
   return (
     <View style={[styles.reportRow, selected && styles.reportRowSelected]}>
       <Image source={report.image} style={styles.reportThumb} />
       <View style={styles.reportCopy}>
         <View style={styles.reportTopLine}>
           <Text style={styles.reportId}>{report.publicId}</Text>
-          <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
-            <Text style={[styles.statusText, { color: palette.text }]}>{report.status}</Text>
-          </View>
+          <StatusPill status={report.status} />
         </View>
         <Text style={styles.reportTitle} numberOfLines={1}>{report.title}</Text>
         <Text style={styles.reportMeta} numberOfLines={1}>{report.location} · {report.date}</Text>
@@ -2103,9 +2214,7 @@ function ReportDetail({
         <Image source={report.image} style={styles.detailHeroImage} resizeMode="cover" />
         <LinearGradient colors={['rgba(0,0,0,0.02)', 'rgba(0,58,66,0.78)']} style={styles.detailHeroOverlay} />
         <View style={styles.detailHeroCopy}>
-          <View style={[styles.detailHeroStatus, { backgroundColor: getStatusPalette(report.status).bg }]}>
-            <Text style={[styles.detailHeroStatusText, { color: getStatusPalette(report.status).text }]}>{report.status}</Text>
-          </View>
+          <StatusPill status={report.status} />
           <Text style={styles.detailHeroKicker}>{report.publicId} · {report.location}</Text>
           <Text style={styles.detailHeroTitle}>{report.title}</Text>
           <Text style={styles.detailHeroText}>{report.nextStep}</Text>
@@ -2155,6 +2264,16 @@ function DetailStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function StatusPill({ status }: { status: ReportStatus }) {
+  const palette = getStatusPalette(status);
+  return (
+    <View style={[styles.statusPill, { backgroundColor: palette.bg }]}>
+      <MaterialCommunityIcons name={getStatusIcon(status)} size={13} color={palette.text} />
+      <Text style={[styles.statusText, { color: palette.text }]}>{status}</Text>
+    </View>
+  );
+}
+
 function TrustLine({ icon, title, value }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; value: string }) {
   return (
     <View style={styles.trustLine}>
@@ -2174,6 +2293,15 @@ function getStatusPalette(status: ReportStatus) {
   if (status === 'На модерации') return { bg: '#eeeeee', text: '#5f6368' };
   if (status === 'Передано') return { bg: '#E4F6F4', text: '#00736F' };
   return { bg: '#e5f4ff', text: '#1769aa' };
+}
+
+function getStatusIcon(status: ReportStatus): keyof typeof MaterialCommunityIcons.glyphMap {
+  if (status === 'Решено') return 'check-decagram-outline';
+  if (status === 'Отклонено') return 'close-circle-outline';
+  if (status === 'Передано') return 'send-check-outline';
+  if (status === 'В работе') return 'progress-check';
+  if (status === 'Требует уточнения') return 'message-alert-outline';
+  return 'clock-check-outline';
 }
 
 const styles = StyleSheet.create({
@@ -3544,6 +3672,92 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
+  adminUserGrid: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  adminUserCard: {
+    borderRadius: 16,
+    backgroundColor: '#f5f6f7',
+    padding: 12,
+  },
+  adminUserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  adminUserAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 15,
+    backgroundColor: '#008F9A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminUserAvatarText: {
+    color: '#ffffff',
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  adminUserName: {
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  adminUserMeta: {
+    color: '#6b7280',
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 2,
+    fontWeight: '700',
+  },
+  adminUserMetrics: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 10,
+  },
+  adminMiniMetric: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 13,
+    backgroundColor: '#ffffff',
+    padding: 9,
+    justifyContent: 'space-between',
+  },
+  adminMiniMetricValue: {
+    color: '#141414',
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  adminMiniMetricLabel: {
+    color: '#6b7280',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  adminEmptyCard: {
+    minHeight: 112,
+    borderRadius: 16,
+    backgroundColor: '#f5f6f7',
+    padding: 14,
+    justifyContent: 'center',
+    gap: 5,
+  },
+  adminEmptyTitle: {
+    color: '#141414',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  adminEmptyText: {
+    color: '#6b7280',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
   adminActionButton: {
     minHeight: 36,
     borderRadius: 18,
@@ -3552,6 +3766,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  adminActionButtonDisabled: {
+    opacity: 0.48,
   },
   adminActionText: {
     color: '#141414',
@@ -3680,8 +3897,10 @@ const styles = StyleSheet.create({
     minHeight: 24,
     borderRadius: 12,
     paddingHorizontal: 8,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
   },
   statusText: {
     fontSize: 11,

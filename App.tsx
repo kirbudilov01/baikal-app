@@ -20,7 +20,6 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import MapView, { Callout, Marker, PROVIDER_GOOGLE, type MapPressEvent } from 'react-native-maps';
 
 type Tab = 'home' | 'map' | 'report' | 'success' | 'messages' | 'profile' | 'admin';
 type ReportStatus = 'На модерации' | 'Требует уточнения' | 'Передано' | 'В работе' | 'Решено' | 'Отклонено';
@@ -30,6 +29,12 @@ type ReportFilter = 'Все' | 'Активные' | 'Решенные';
 type LocationPoint = {
   latitude: number;
   longitude: number;
+};
+
+type MapPressEvent = {
+  nativeEvent: {
+    coordinate: LocationPoint;
+  };
 };
 
 type MapPoint = LocationPoint & {
@@ -172,6 +177,11 @@ const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
 const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
 const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
+const NativeMaps = Platform.OS === 'web' ? null : require('react-native-maps');
+const MapView = NativeMaps?.default;
+const Marker = NativeMaps?.Marker;
+const Callout = NativeMaps?.Callout;
+const PROVIDER_GOOGLE = NativeMaps?.PROVIDER_GOOGLE;
 
 const mapPoints: MapPoint[] = [
   { label: 'Большое Голоустное', area: 'лесной участок у берега', latitude: 52.03582, longitude: 105.40611, top: '26%', left: '62%' },

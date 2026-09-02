@@ -34,6 +34,7 @@ yarn-error.*
 AGENTS.md
 CLAUDE.md
 .claude/
+.playwright-cli/
 tmp/
 
 # local env files

@@ -219,6 +219,7 @@ const onboardingPages: Array<{
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
 const AUTH_STORAGE_KEY = 'baikal-auth-v1';
+const ONBOARDING_STORAGE_KEY = 'baikal-onboarding-seen-v1';
 const PRODUCTION_API_BASE_URL = 'https://baikal.46.17.103.26.sslip.io';
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || (__DEV__ ? 'http://localhost:4000' : PRODUCTION_API_BASE_URL);
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
@@ -805,8 +806,8 @@ export default function App() {
         <StatusBar style="dark" />
         <View style={styles.shell}>
           <View style={styles.authScreen}>
-            <Text style={styles.authTitle}>Байкал</Text>
-            <Text style={styles.authText}>Готовим профиль участника...</Text>
+            <Text style={styles.loadingBrand}>Байкал</Text>
+            <Text style={styles.loadingText}>Готовим профиль участника...</Text>
           </View>
         </View>
       </SafeAreaView>
@@ -819,9 +820,13 @@ export default function App() {
         <StatusBar style="dark" />
         <AuthScreen
           message={authMessage}
-          onSubmit={(mode, username, password) =>
-            submitAuth(mode, username, password).catch((error) => setAuthMessage(error instanceof Error ? error.message : 'Не удалось войти'))
-          }
+          onSubmit={async (mode, username, password) => {
+            try {
+              await submitAuth(mode, username, password);
+            } catch (error) {
+              setAuthMessage(error instanceof Error ? error.message : 'Не удалось войти');
+            }
+          }}
         />
       </SafeAreaView>
     );
@@ -1005,16 +1010,59 @@ function AuthScreen({
   onSubmit,
 }: {
   message: string;
-  onSubmit: (mode: 'register' | 'login', username: string, password: string) => void;
+  onSubmit: (mode: 'register' | 'login', username: string, password: string) => Promise<void>;
 }) {
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [pageIndex, setPageIndex] = useState(0);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [acceptedRules, setAcceptedRules] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const usernameReady = /^[a-z0-9_.-]{3,24}$/.test(username.trim().toLowerCase());
   const passwordReady = password.length >= 6;
-  const canSubmit = usernameReady && passwordReady;
-  const isOnboarding = pageIndex < onboardingPages.length;
+  const canSubmit = usernameReady && passwordReady && (mode === 'login' || acceptedRules) && !submitting;
+  const isOnboarding = onboardingChecked && showOnboarding && pageIndex < onboardingPages.length;
+
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDING_STORAGE_KEY)
+      .then((stored) => {
+        if (stored === 'done') {
+          setShowOnboarding(false);
+          setPageIndex(onboardingPages.length);
+        }
+      })
+      .finally(() => setOnboardingChecked(true));
+  }, []);
+
+  const finishOnboarding = (nextMode: 'register' | 'login') => {
+    setMode(nextMode);
+    setShowOnboarding(false);
+    setPageIndex(onboardingPages.length);
+    AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'done').catch(() => undefined);
+  };
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(mode, username.trim().toLowerCase(), password);
+      AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'done').catch(() => undefined);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!onboardingChecked) {
+    return (
+      <View style={[styles.authShell, styles.authScreen]}>
+        <Text style={styles.loadingBrand}>Байкал</Text>
+        <Text style={styles.loadingText}>Готовим первый запуск...</Text>
+      </View>
+    );
+  }
 
   if (isOnboarding) {
     const page = onboardingPages[pageIndex];
@@ -1024,8 +1072,8 @@ function AuthScreen({
       <ScrollView style={styles.authShell} contentContainerStyle={styles.authScrollInner} showsVerticalScrollIndicator={false}>
         <View style={styles.onboardingTop}>
           <Text style={styles.onboardingBrand}>Байкал</Text>
-          <Pressable style={styles.onboardingSkip} onPress={() => setPageIndex(onboardingPages.length)}>
-            <Text style={styles.onboardingSkipText}>Войти</Text>
+          <Pressable style={styles.onboardingSkip} onPress={() => finishOnboarding('login')}>
+            <Text style={styles.onboardingSkipText}>Уже есть профиль</Text>
           </Pressable>
         </View>
 
@@ -1038,8 +1086,31 @@ function AuthScreen({
             </View>
             <Text style={styles.onboardingTitle}>{page.title}</Text>
             <Text style={styles.onboardingText}>{page.text}</Text>
+            {isLastPage ? (
+              <View style={styles.onboardingRewardPreview}>
+                <View style={styles.onboardingRewardItem}>
+                  <Text style={styles.onboardingRewardPoints}>+50</Text>
+                  <Text style={styles.onboardingRewardLabel}>за фото</Text>
+                </View>
+                <View style={styles.onboardingRewardItem}>
+                  <Text style={styles.onboardingRewardPoints}>+20</Text>
+                  <Text style={styles.onboardingRewardLabel}>за проверку</Text>
+                </View>
+                <View style={styles.onboardingRewardItem}>
+                  <Text style={styles.onboardingRewardPoints}>-20%</Text>
+                  <Text style={styles.onboardingRewardLabel}>у партнеров</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         </View>
+
+        {pageIndex === 0 ? (
+          <View style={styles.permissionNote}>
+            <MaterialCommunityIcons name="lock-check-outline" size={18} color="#008F9A" />
+            <Text style={styles.permissionNoteText}>Камеру и геолокацию попросим только при отправке обращения.</Text>
+          </View>
+        ) : null}
 
         <View style={styles.onboardingDots}>
           {onboardingPages.map((item, index) => (
@@ -1065,8 +1136,7 @@ function AuthScreen({
             style={[styles.primaryButton, styles.onboardingPrimaryButton]}
             onPress={() => {
               if (isLastPage) {
-                setMode('register');
-                setPageIndex(onboardingPages.length);
+                finishOnboarding('register');
                 return;
               }
               setPageIndex(pageIndex + 1);
@@ -1079,10 +1149,7 @@ function AuthScreen({
 
         <Pressable
           style={styles.onboardingLoginLine}
-          onPress={() => {
-            setMode('login');
-            setPageIndex(onboardingPages.length);
-          }}
+          onPress={() => finishOnboarding('login')}
         >
           <Text style={styles.onboardingLoginText}>Уже есть аккаунт</Text>
         </Pressable>
@@ -1101,7 +1168,7 @@ function AuthScreen({
             <Text style={styles.heroPillText}>Заявки и листики сохраняются</Text>
           </View>
           <Text style={styles.authTitle}>{mode === 'register' ? 'Создайте профиль' : 'Войдите в профиль'}</Text>
-          <Text style={styles.authText}>Нужны только username и пароль. Контакты не показываются публично.</Text>
+          <Text style={styles.authText}>Нужны только имя пользователя и пароль. Личные контакты не требуются.</Text>
         </View>
       </View>
 
@@ -1115,7 +1182,7 @@ function AuthScreen({
           </Pressable>
         </View>
 
-        <Text style={styles.authLabel}>Username</Text>
+        <Text style={styles.authLabel}>Имя пользователя</Text>
         <TextInput
           value={username}
           onChangeText={setUsername}
@@ -1125,31 +1192,76 @@ function AuthScreen({
           placeholderTextColor="#8b8b8b"
           style={styles.authInput}
         />
-        <Text style={styles.authFieldHint}>Латиница, цифры, точка, дефис или нижнее подчеркивание.</Text>
+        <View style={styles.authHintRow}>
+          <MaterialCommunityIcons
+            name={username.length === 0 || usernameReady ? 'check-circle-outline' : 'alert-circle-outline'}
+            size={15}
+            color={username.length === 0 || usernameReady ? '#247647' : '#a33a3a'}
+          />
+          <Text style={styles.authFieldHint}>3-24 символа: латиница, цифры, точка, дефис или _.</Text>
+        </View>
 
         <Text style={styles.authLabel}>Пароль</Text>
-        <TextInput
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholder="минимум 6 символов"
-          placeholderTextColor="#8b8b8b"
-          style={styles.authInput}
-        />
+        <View style={styles.passwordField}>
+          <TextInput
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!passwordVisible}
+            placeholder="минимум 6 символов"
+            placeholderTextColor="#8b8b8b"
+            style={styles.passwordInput}
+          />
+          <Pressable
+            style={styles.passwordToggle}
+            accessibilityRole="button"
+            accessibilityLabel={passwordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+            onPress={() => setPasswordVisible((value) => !value)}
+          >
+            <MaterialCommunityIcons name={passwordVisible ? 'eye-off-outline' : 'eye-outline'} size={21} color="#5f6368" />
+          </Pressable>
+        </View>
+
+        {mode === 'register' ? (
+          <Pressable style={styles.acceptRulesRow} onPress={() => setAcceptedRules((value) => !value)}>
+            <View style={[styles.acceptRulesBox, acceptedRules && styles.acceptRulesBoxActive]}>
+              {acceptedRules ? <MaterialCommunityIcons name="check" size={14} color="#ffffff" /> : null}
+            </View>
+            <Text style={styles.acceptRulesText}>
+              Согласен с правилами сервиса и обработкой данных. Личные контакты в заявках не публикуются.
+            </Text>
+          </Pressable>
+        ) : null}
 
         {message ? <Text style={styles.authError}>{message}</Text> : null}
 
         <Pressable
           style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]}
-          onPress={canSubmit ? () => onSubmit(mode, username.trim().toLowerCase(), password) : undefined}
+          onPress={submit}
+          disabled={!canSubmit}
         >
-          <Text style={styles.primaryButtonText}>{mode === 'register' ? 'Создать профиль' : 'Войти'}</Text>
+          <Text style={styles.primaryButtonText}>
+            {submitting ? 'Проверяем...' : mode === 'register' ? 'Создать профиль' : 'Войти'}
+          </Text>
         </Pressable>
 
         <View style={styles.authBenefitList}>
           <InfoRow icon="clipboard-check-outline" title="Заявки сохраняются" text="Все обращения будут привязаны к вашему аккаунту." />
           <InfoRow icon="leaf" title="Листики не теряются" text="Баланс и бонусы подтянутся после входа." />
-          <InfoRow icon="eye-off-outline" title="Контакты не публичны" text="В заявках виден служебный профиль, не личные данные." />
+          <InfoRow icon="gift-outline" title="Бонусы можно забрать" text="Промокоды и скидки появятся в разделе с наградами." />
+        </View>
+
+        <View style={styles.authLinkRow}>
+          <Pressable onPress={() => Linking.openURL(TERMS_URL)}>
+            <Text style={styles.authLinkText}>Правила</Text>
+          </Pressable>
+          <Text style={styles.authLinkDivider}>·</Text>
+          <Pressable onPress={() => Linking.openURL(PRIVACY_URL)}>
+            <Text style={styles.authLinkText}>Политика данных</Text>
+          </Pressable>
+          <Text style={styles.authLinkDivider}>·</Text>
+          <Pressable onPress={() => Linking.openURL(SUPPORT_URL)}>
+            <Text style={styles.authLinkText}>Помощь</Text>
+          </Pressable>
         </View>
       </View>
     </ScrollView>
@@ -2539,6 +2651,20 @@ const styles = StyleSheet.create({
     padding: 24,
     justifyContent: 'center',
   },
+  loadingBrand: {
+    color: '#141414',
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  loadingText: {
+    color: '#6b7280',
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+    marginTop: 8,
+  },
   onboardingTop: {
     minHeight: 42,
     flexDirection: 'row',
@@ -2611,6 +2737,51 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '700',
     marginTop: 9,
+  },
+  onboardingRewardPreview: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 16,
+  },
+  onboardingRewardItem: {
+    flex: 1,
+    minHeight: 70,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    padding: 10,
+    justifyContent: 'center',
+  },
+  onboardingRewardPoints: {
+    color: '#ffffff',
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: '900',
+  },
+  onboardingRewardLabel: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  permissionNote: {
+    minHeight: 48,
+    borderRadius: 18,
+    backgroundColor: '#e6f5f3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 13,
+    marginTop: 10,
+  },
+  permissionNoteText: {
+    flex: 1,
+    color: '#08666d',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
   },
   onboardingDots: {
     minHeight: 36,
@@ -2772,12 +2943,71 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     marginBottom: 8,
   },
+  authHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: -2,
+    marginBottom: 12,
+  },
   authFieldHint: {
+    flex: 1,
     color: '#6b7280',
     fontSize: 11,
     lineHeight: 15,
-    marginTop: -2,
-    marginBottom: 12,
+  },
+  passwordField: {
+    minHeight: 50,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  passwordInput: {
+    flex: 1,
+    minHeight: 50,
+    color: '#141414',
+    fontSize: 15,
+    paddingLeft: 13,
+    paddingRight: 8,
+  },
+  passwordToggle: {
+    width: 48,
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptRulesRow: {
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  acceptRulesBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#d7dcdf',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptRulesBoxActive: {
+    borderColor: '#008F9A',
+    backgroundColor: '#008F9A',
+  },
+  acceptRulesText: {
+    flex: 1,
+    color: '#3f454a',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700',
   },
   authError: {
     color: '#a33a3a',
@@ -2788,6 +3018,27 @@ const styles = StyleSheet.create({
   },
   authBenefitList: {
     marginTop: 12,
+  },
+  authLinkRow: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 8,
+  },
+  authLinkText: {
+    color: '#008F9A',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+  },
+  authLinkDivider: {
+    color: '#b5bbc0',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '800',
   },
   appHeader: {
     minHeight: 50,

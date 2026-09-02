@@ -55,10 +55,12 @@ const rewardCatalog = [
 
 function applyCors(request, response) {
   const origin = request.headers.origin;
-  const allowedOrigin = allowedOrigins.includes(String(origin)) ? origin : allowedOrigins[0];
+  const isLocalPreviewOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin || ''));
+  const allowedOrigin = allowedOrigins.includes(String(origin)) || isLocalPreviewOrigin ? origin : allowedOrigins[0];
 
   response.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
   response.setHeader('access-control-allow-headers', 'content-type,x-admin-id,x-admin-token,x-profile-id,authorization');
+  response.setHeader('access-control-max-age', '86400');
   response.setHeader('vary', 'origin');
   response.setHeader('access-control-allow-origin', allowedOrigin || '*');
 }

@@ -40,4 +40,4 @@ EXPO_PUBLIC_BASE_URL=/${{ github.event.repository.name }}
 
 - Это только frontend/demo web build, не нативная iOS/Android установка.
 - Камера, галерея и геолокация в браузере зависят от разрешений и HTTPS.
-- Backend endpoints пока не подключены к web build, поэтому данные остаются демо/локальными.
+- Web build подключается к публичному backend API. Данные заявок, профиля, баллов и промокодов меняются на сервере, если сборка использует `EXPO_PUBLIC_API_BASE_URL` или production fallback.

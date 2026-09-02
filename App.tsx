@@ -219,12 +219,13 @@ const onboardingPages: Array<{
 const DRAFT_STORAGE_KEY = 'baikal-report-draft-v1';
 const PROFILE_STORAGE_KEY = 'baikal-profile-id-v1';
 const AUTH_STORAGE_KEY = 'baikal-auth-v1';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+const PRODUCTION_API_BASE_URL = 'https://baikal.46.17.103.26.sslip.io';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || (__DEV__ ? 'http://localhost:4000' : PRODUCTION_API_BASE_URL);
 const ADMIN_ENABLED = process.env.EXPO_PUBLIC_ADMIN_ENABLED === 'true';
 const INITIAL_ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN || '';
-const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || '';
-const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || '';
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || '';
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL || `${PRODUCTION_API_BASE_URL}/privacy`;
+const SUPPORT_URL = process.env.EXPO_PUBLIC_SUPPORT_URL || `${PRODUCTION_API_BASE_URL}/support`;
+const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL || `${PRODUCTION_API_BASE_URL}/terms`;
 const noWebOutline = { outlineStyle: 'none' } as unknown as ViewStyle;
 const NativeMaps = Platform.OS === 'web' ? null : require('react-native-maps');
 const MapView = NativeMaps?.default;

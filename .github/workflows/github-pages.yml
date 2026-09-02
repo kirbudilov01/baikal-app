@@ -37,6 +37,11 @@ jobs:
         run: npm run build:web
         env:
           EXPO_PUBLIC_BASE_URL: /${{ github.event.repository.name }}
+          EXPO_PUBLIC_API_BASE_URL: https://baikal.46.17.103.26.sslip.io
+          EXPO_PUBLIC_ADMIN_ENABLED: "false"
+          EXPO_PUBLIC_PRIVACY_URL: https://baikal.46.17.103.26.sslip.io/privacy
+          EXPO_PUBLIC_SUPPORT_URL: https://baikal.46.17.103.26.sslip.io/support
+          EXPO_PUBLIC_TERMS_URL: https://baikal.46.17.103.26.sslip.io/terms
 
       - name: Keep GitHub Pages from processing files with Jekyll
         run: touch dist/.nojekyll

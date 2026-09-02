@@ -34,7 +34,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Export Expo Web
-        run: npm run build:web
+        run: npm run build:web:pages
         env:
           EXPO_PUBLIC_BASE_URL: /${{ github.event.repository.name }}
           EXPO_PUBLIC_API_BASE_URL: https://baikal.46.17.103.26.sslip.io

@@ -1921,7 +1921,7 @@ async function route(request, response) {
   if (request.method === 'POST' && statusMatch) {
     const reportId = statusMatch[1];
     const payload = await readJson(request);
-    requireAdmin(request);
+    const adminId = requireAdmin(request);
 
     const nextDb = await updateDb((db) => {
       const index = db.reports.findIndex((report) => report.id === reportId);

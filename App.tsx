@@ -434,6 +434,21 @@ function rewardFromApi(reward: ApiReward): Reward {
   };
 }
 
+function reportTitleForCategory(category: Category) {
+  const titles: Record<string, string> = {
+    Вырубка: 'Возможная незаконная вырубка',
+    Мусор: 'Мусор на территории',
+    Свалка: 'Несанкционированная свалка',
+    Вода: 'Загрязнение воды',
+    Стройка: 'Подозрительные работы у воды',
+    Разлив: 'Разлив нефтепродуктов',
+    Природа: 'Повреждение природной территории',
+    Другое: 'Экологическая проблема',
+  };
+
+  return titles[category.label] ?? 'Экологическая проблема';
+}
+
 async function requestJson<T>(path: string, options?: RequestInit & { profileId?: string | null; authToken?: string | null }): Promise<T> {
   const { profileId, authToken, ...fetchOptions } = options ?? {};
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -500,6 +515,7 @@ export default function App() {
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [syncMessage, setSyncMessage] = useState('Данные еще не обновлялись');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const balance = useMemo(
@@ -709,7 +725,7 @@ export default function App() {
     return {
       id: publicId ? reportNumericId(publicId) : Date.now(),
       publicId: publicId ?? `BR-${Math.floor(1200 + Math.random() * 7800)}`,
-      title: category.label === 'Вырубка' ? 'Незаконная вырубка леса' : `Обращение: ${category.label}`,
+      title: reportTitleForCategory(category),
       category: category.label,
       location: pickedLocation ? pickedLocationLabel || 'Выбранная точка' : 'Иркутская область',
       latitude: pickedLocation?.latitude ?? 52.28697,
@@ -737,6 +753,8 @@ export default function App() {
   };
 
   const submitReport = async () => {
+    if (isSubmittingReport) return;
+    setIsSubmittingReport(true);
     const localReport = buildLocalReport();
     let nextReport = localReport;
     const activeProfileId = profileId ?? 'demo-profile';
@@ -784,6 +802,7 @@ export default function App() {
     setSelectedReportId(nextReport.id);
     clearDraft();
     setActiveTab('success');
+    setIsSubmittingReport(false);
   };
 
   const confirmReport = async (report: Report) => {
@@ -893,6 +912,7 @@ export default function App() {
               onPickLocation={setPickedLocation}
               onPickLocationLabel={setPickedLocationLabel}
               onSubmit={submitReport}
+              isSubmitting={isSubmittingReport}
               onClearDraft={clearDraft}
               onOpenDuplicate={(id) => {
                 setSelectedReportId(id);
@@ -1311,6 +1331,7 @@ function ReportScreen({
   onPickLocation,
   onPickLocationLabel,
   onSubmit,
+  isSubmitting,
   onClearDraft,
   onOpenDuplicate,
 }: {
@@ -1326,6 +1347,7 @@ function ReportScreen({
   onPickLocation: (value: LocationPoint | null) => void;
   onPickLocationLabel: (value: string) => void;
   onSubmit: () => void;
+  isSubmitting: boolean;
   onClearDraft: () => void;
   onOpenDuplicate: (id: number) => void;
 }) {
@@ -1337,7 +1359,7 @@ function ReportScreen({
   const isDescriptionReady = description.trim().length >= 10;
   const isLocationReady = Boolean(pickedLocation);
   const readiness = (isPhotoReady ? 1 : 0) + 1 + (isDescriptionReady ? 1 : 0) + (isLocationReady ? 1 : 0);
-  const canSubmit = readiness === 4;
+  const canSubmit = readiness === 4 && !isSubmitting;
   const evidenceScore = Math.min(96, 42 + (isPhotoReady ? 26 : 0) + (description.trim().length >= 35 ? 14 : isDescriptionReady ? 8 : 0) + (isLocationReady ? 14 : 0));
   const similarReport = reports.find(
     (report) => report.category === selectedCategory && report.status !== 'Решено' && report.status !== 'Отклонено' && report.id !== ignoreDuplicateId,
@@ -1348,7 +1370,9 @@ function ReportScreen({
       ? 'Коротко опишите ситуацию'
       : !isLocationReady
         ? 'Выберите место на карте'
-        : 'Можно отправлять';
+        : isSubmitting
+          ? 'Отправляем заявку'
+          : 'Можно отправлять';
 
   const takePhoto = async () => {
     setFormMessage('');
@@ -1491,8 +1515,8 @@ function ReportScreen({
 
       {formMessage ? <Text style={styles.inlineHint}>{formMessage}</Text> : null}
 
-      <Pressable style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]} onPress={canSubmit ? onSubmit : undefined}>
-        <Text style={styles.primaryButtonText}>{canSubmit ? 'Отправить заявку' : nextMissing}</Text>
+      <Pressable style={[styles.primaryButton, !canSubmit && styles.primaryButtonDisabled]} onPress={canSubmit ? onSubmit : undefined} disabled={!canSubmit}>
+        <Text style={styles.primaryButtonText}>{isSubmitting ? 'Отправляем...' : canSubmit ? 'Отправить заявку' : nextMissing}</Text>
       </Pressable>
       <Pressable style={styles.textButton} onPress={onClearDraft}>
         <Text style={styles.textButtonText}>Очистить черновик</Text>
@@ -1590,6 +1614,7 @@ function MapScreen({
   const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
   const filters = ['Все', 'Вырубка', 'Мусор', 'Вода', 'Стройка', 'Природа'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
+  const hasFilteredReports = filtered.length > 0;
   const selectedNativeReport = filtered.find((report) => report.publicId === selectedReportPublicId) ?? filtered[0] ?? reports[0];
   const visiblePoints = mapPoints.filter((point) => filtered.some((report) => report.location === point.label));
   const safePoints = visiblePoints.length > 0 ? visiblePoints : mapPoints;
@@ -1626,7 +1651,17 @@ function MapScreen({
         ))}
       </ScrollView>
 
-      {Platform.OS !== 'web' ? (
+      {!hasFilteredReports ? (
+        <View style={styles.emptyStateCard}>
+          <View style={styles.emptyStateIcon}>
+            <MaterialCommunityIcons name="map-search-outline" size={24} color="#00736F" />
+          </View>
+          <Text style={styles.emptyStateTitle}>Заявок этого типа пока нет</Text>
+          <Text style={styles.emptyStateText}>Выберите другой фильтр или создайте новую заявку, если видите проблему на месте.</Text>
+        </View>
+      ) : null}
+
+      {hasFilteredReports && Platform.OS !== 'web' ? (
         <View style={styles.nativeMapCanvas}>
           <MapView
             style={styles.nativeMap}
@@ -1681,7 +1716,7 @@ function MapScreen({
             </Pressable>
           </View>
         </View>
-      ) : (
+      ) : hasFilteredReports ? (
       <View style={styles.mapCanvas}>
         <Image source={heroImage} style={styles.mapImage} resizeMode="cover" />
         <LinearGradient colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.72)']} style={styles.mapImageOverlay} />
@@ -1736,7 +1771,7 @@ function MapScreen({
           </Pressable>
         </View>
       </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -3875,6 +3910,39 @@ const styles = StyleSheet.create({
   nativeMap: {
     width: '100%',
     height: '100%',
+  },
+  emptyStateCard: {
+    minHeight: 170,
+    borderRadius: 22,
+    backgroundColor: '#f5f6f7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    marginBottom: 14,
+  },
+  emptyStateIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: '#e6f5f3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  emptyStateTitle: {
+    color: '#141414',
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    color: '#6b7280',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 5,
   },
   mapCallout: {
     minWidth: 180,

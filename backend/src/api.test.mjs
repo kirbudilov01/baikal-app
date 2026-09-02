@@ -176,6 +176,15 @@ test('serves release-critical API, legal pages, and admin protection', async () 
     assert.equal(adminReport.profileId, registered.user.profileId);
     assert.equal(adminReport.events.some((event) => event.type === 'confirmed'), true);
 
+    const transferred = await fetch(`${baseUrl}/api/admin/reports/${created.report.id}/status`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${adminLogin.token}` },
+      body: JSON.stringify({ status: 'transferred' }),
+    }).then((response) => response.json());
+
+    assert.equal(transferred.report.status.code, 'transferred');
+    assert.equal(transferred.report.events.some((event) => event.type === 'status_changed' && event.actor === 'admin:api'), true);
+
     const adminUsers = await fetch(`${baseUrl}/api/admin/users`, {
       headers: { authorization: `Bearer ${adminLogin.token}` },
     }).then((response) => response.json());

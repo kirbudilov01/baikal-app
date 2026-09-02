@@ -1005,7 +1005,7 @@ function HomeScreen({
         <View style={styles.heroContent}>
           <View style={styles.heroPill}>
             <MaterialCommunityIcons name="shield-check-outline" size={15} color="#ffffff" />
-            <Text style={styles.heroPillText}>Контакты не показываются публично</Text>
+            <Text style={styles.heroPillText}>Личные контакты не требуются</Text>
           </View>
           <Text style={styles.heroTitle}>Сообщите о проблеме на Байкале</Text>
           <Text style={styles.heroText}>Фото, место и короткое описание помогут быстрее проверить обращение.</Text>

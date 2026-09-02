@@ -235,9 +235,10 @@ const Callout = NativeMaps?.Callout;
 const PROVIDER_GOOGLE = NativeMaps?.PROVIDER_GOOGLE;
 
 const mapPoints: MapPoint[] = [
-  { label: 'Большое Голоустное', area: 'лесной участок у берега', latitude: 52.03582, longitude: 105.40611, top: '26%', left: '62%' },
-  { label: 'Листвянка', area: 'береговая линия', latitude: 51.85347, longitude: 104.86931, top: '50%', left: '30%' },
-  { label: 'Ольхон', area: 'тропа у мыса', latitude: 53.15912, longitude: 107.38391, top: '68%', left: '54%' },
+  { label: 'Култук', area: 'очистные сооружения', latitude: 51.7208, longitude: 103.6956, top: '34%', left: '33%' },
+  { label: 'Иркутск, водоохранная зона', area: 'шины и отходы', latitude: 52.28697, longitude: 104.30502, top: '48%', left: '44%' },
+  { label: 'Бухта Базарная', area: 'береговая полоса', latitude: 53.1036, longitude: 106.9332, top: '62%', left: '66%' },
+  { label: 'Иркутский район, СНТ «Университетский»', area: 'лесные насаждения', latitude: 52.2045, longitude: 104.1444, top: '42%', left: '51%' },
 ];
 
 const categories: Category[] = [
@@ -260,20 +261,20 @@ const initialRewards: Reward[] = [
 const initialReports: Report[] = [
   {
     id: 1,
-    publicId: 'BR-1024',
-    title: 'Незаконная вырубка леса',
+    publicId: 'BR-2026-0819',
+    title: 'Недействительная сделка с лесом',
     category: 'Вырубка',
-    location: 'Большое Голоустное',
-    latitude: 52.03582,
-    longitude: 105.40611,
+    location: 'Иркутский район, СНТ «Университетский»',
+    latitude: 52.2045,
+    longitude: 104.1444,
     status: 'В работе',
     statusCode: 'in_progress',
-    nextStep: 'Ответственные службы проверяют участок',
-    authorityLabel: 'Лесной надзор',
-    nextActionLabel: 'Ожидаем акт проверки',
-    date: '12.05.2026',
-    points: 50,
-    confirmations: 4,
+    nextStep: 'Исполнение решения суда находится на контроле прокурора',
+    authorityLabel: 'Западно-Байкальская природоохранная прокуратура',
+    nextActionLabel: 'Контроль исполнения решения суда',
+    date: '19.08.2026',
+    points: 70,
+    confirmations: 3,
     evidenceScore: 86,
     canConfirm: true,
     canDisputeResolution: false,
@@ -283,53 +284,54 @@ const initialReports: Report[] = [
       { label: 'Фото и место проверены', done: true },
       { label: 'Передано ответственным', done: true },
       { label: 'Проверка на месте', done: true },
-      { label: 'Ожидаем результат', done: false },
+      { label: 'Результат и листики', done: false },
     ],
   },
   {
     id: 2,
-    publicId: 'BR-1018',
-    title: 'Мусор на берегу',
-    category: 'Мусор',
-    location: 'Листвянка',
-    latitude: 51.85347,
-    longitude: 104.86931,
+    publicId: 'BR-2026-0817',
+    title: 'Реконструкция очистных сооружений',
+    category: 'Вода',
+    location: 'Култук',
+    latitude: 51.7208,
+    longitude: 103.6956,
     status: 'Передано',
     statusCode: 'transferred',
-    nextStep: 'Заявка направлена координатору района',
-    authorityLabel: 'Координатор района',
-    nextActionLabel: 'Назначить исполнителя',
-    date: '10.05.2026',
-    points: 20,
-    confirmations: 2,
-    evidenceScore: 72,
+    nextStep: 'Проект реконструкции получил заключения экспертиз',
+    authorityLabel: 'Байкальская природоохранная прокуратура',
+    nextActionLabel: 'Финансирование работ 2027-2028',
+    date: '17.08.2026',
+    points: 80,
+    confirmations: 5,
+    evidenceScore: 90,
     canConfirm: true,
     canDisputeResolution: false,
     image: heroImage,
     timeline: [
       { label: 'Сообщение получено', done: true },
-      { label: 'Проверено модератором', done: true },
-      { label: 'Передано координатору', done: true },
-      { label: 'Назначение исполнителя', done: false },
+      { label: 'Фото и место проверены', done: true },
+      { label: 'Передано ответственным', done: true },
+      { label: 'Проверка на месте', done: false },
+      { label: 'Результат и листики', done: false },
     ],
   },
   {
     id: 3,
-    publicId: 'BR-1007',
-    title: 'Поврежденная тропа восстановлена',
-    category: 'Природа',
-    location: 'Ольхон',
-    latitude: 53.15912,
-    longitude: 107.38391,
+    publicId: 'BR-2026-0811',
+    title: 'Свалки в водоохранной зоне',
+    category: 'Мусор',
+    location: 'Иркутск, водоохранная зона',
+    latitude: 52.28697,
+    longitude: 104.30502,
     status: 'Решено',
     statusCode: 'resolved',
-    nextStep: 'Листики начислены, заявка закрыта',
-    authorityLabel: 'Команда проекта',
-    nextActionLabel: 'Оцените результат',
-    date: '02.05.2026',
+    nextStep: 'Администрация очистила территорию от отходов',
+    authorityLabel: 'Западно-Байкальская природоохранная прокуратура',
+    nextActionLabel: 'Можно проверить результат',
+    date: '11.08.2026',
     points: 100,
-    confirmations: 7,
-    evidenceScore: 94,
+    confirmations: 8,
+    evidenceScore: 96,
     canConfirm: false,
     canDisputeResolution: true,
     image: rewardImage,
@@ -339,6 +341,34 @@ const initialReports: Report[] = [
       { label: 'Передано ответственным', done: true },
       { label: 'Проблема устранена', done: true },
       { label: 'Листики начислены', done: true },
+    ],
+  },
+  {
+    id: 4,
+    publicId: 'BR-2026-0812',
+    title: 'Незаконные объекты у воды',
+    category: 'Стройка',
+    location: 'Бухта Базарная',
+    latitude: 53.1036,
+    longitude: 106.9332,
+    status: 'В работе',
+    statusCode: 'in_progress',
+    nextStep: 'Проверки продолжаются, нарушения на контроле',
+    authorityLabel: 'Ольхонская природоохранная прокуратура',
+    nextActionLabel: 'Контроль демонтажа объектов',
+    date: '12.08.2026',
+    points: 90,
+    confirmations: 6,
+    evidenceScore: 92,
+    canConfirm: true,
+    canDisputeResolution: false,
+    image: reportImage,
+    timeline: [
+      { label: 'Сообщение получено', done: true },
+      { label: 'Фото и место проверены', done: true },
+      { label: 'Передано ответственным', done: true },
+      { label: 'Проверка на месте', done: true },
+      { label: 'Результат и листики', done: false },
     ],
   },
 ];
@@ -1227,7 +1257,7 @@ function AuthScreen({
               {acceptedRules ? <MaterialCommunityIcons name="check" size={14} color="#ffffff" /> : null}
             </View>
             <Text style={styles.acceptRulesText}>
-              Согласен с правилами сервиса и обработкой данных. Личные контакты в заявках не публикуются.
+              Принимаю условия пользовательского соглашения и обработку данных. Личные контакты в заявках не публикуются.
             </Text>
           </Pressable>
         ) : null}
@@ -1558,7 +1588,7 @@ function MapScreen({
   const [mapFilter, setMapFilter] = useState('Все');
   const [selectedReportPublicId, setSelectedReportPublicId] = useState(reports[0]?.publicId ?? '');
   const [selectedPointLabel, setSelectedPointLabel] = useState(mapPoints[0].label);
-  const filters = ['Все', 'Вырубка', 'Мусор', 'Вода'];
+  const filters = ['Все', 'Вырубка', 'Мусор', 'Вода', 'Стройка', 'Природа'];
   const filtered = reports.filter((report) => mapFilter === 'Все' || report.category === mapFilter);
   const selectedNativeReport = filtered.find((report) => report.publicId === selectedReportPublicId) ?? filtered[0] ?? reports[0];
   const visiblePoints = mapPoints.filter((point) => filtered.some((report) => report.location === point.label));

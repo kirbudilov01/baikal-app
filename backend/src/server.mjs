@@ -1057,7 +1057,7 @@ function adminPageHtml() {
       const user = state.users.find((item) => item.profileId === profileId);
       if (user) return '@' + user.username;
       if (profileId === 'demo-profile') return 'демо-профиль';
-      if (profileId === 'seed-profile') return 'тестовый профиль';
+      if (profileId === 'seed-profile' || profileId === 'public-source') return 'публичный источник';
       return profileId || 'профиль не указан';
     }
 

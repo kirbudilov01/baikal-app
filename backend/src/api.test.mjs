@@ -210,8 +210,10 @@ test('serves release-critical API, legal pages, and admin protection', async () 
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${adminLogin.token}` },
       body: JSON.stringify({ profileId: registered.user.profileId, rewardId: rewards.rewards[1].id }),
-    });
-    assert.equal(repeatedPromo.status, 409);
+    }).then(async (response) => ({ status: response.status, payload: await response.json() }));
+    assert.equal(repeatedPromo.status, 200);
+    assert.equal(repeatedPromo.payload.alreadyExisted, true);
+    assert.equal(repeatedPromo.payload.promoCode.code, promo.promoCode.code);
 
     const globalPromo = await fetch(`${baseUrl}/api/admin/promo-codes`, {
       method: 'POST',

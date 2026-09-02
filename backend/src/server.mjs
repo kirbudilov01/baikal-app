@@ -1311,7 +1311,9 @@ function adminPageHtml() {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || 'Не удалось создать промокод');
         message.className = 'ok';
-        message.textContent = (payload.promoCodes?.length > 1 ? 'Промокоды созданы: ' + payload.promoCodes.length : 'Промокод создан: ' + payload.promoCode.code);
+        message.textContent = payload.alreadyExisted
+          ? 'Промокод уже есть: ' + payload.promoCode.code
+          : (payload.promoCodes?.length > 1 ? 'Промокоды созданы: ' + payload.promoCodes.length : 'Промокод создан: ' + payload.promoCode.code);
         state.db = payload.db;
         state.reports = payload.db.reports || [];
         state.users = payload.db.users || [];
@@ -2016,12 +2018,21 @@ async function route(request, response) {
     if (!profileId) throw createDomainError(400, 'Выберите пользователя');
     if (!reward) throw createDomainError(404, 'Бонус не найден');
 
-    const nextDb = await updateDb((db) => {
-      if (mode === 'personal') {
-        const existingClaim = db.rewardClaims.find((claim) => claim.profileId === profileId && claim.rewardId === rewardId);
-        if (existingClaim) throw createDomainError(409, 'Промокод для этого бонуса уже выдан');
+    if (mode === 'personal') {
+      const snapshot = await adminDatabaseSnapshot();
+      const existingClaim = snapshot.promoCodes.find((claim) => claim.profileId === profileId && claim.rewardId === rewardId);
+      if (existingClaim) {
+        sendJson(response, 200, {
+          promoCode: existingClaim,
+          promoCodes: [existingClaim],
+          alreadyExisted: true,
+          db: snapshot,
+        });
+        return;
       }
+    }
 
+    const nextDb = await updateDb((db) => {
       const now = new Date().toISOString();
       const claims = Array.from({ length: quantity }, () => ({
         id: randomUUID(),

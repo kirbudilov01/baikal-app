@@ -30,7 +30,7 @@
     "web": "expo start --web",
     "doctor": "npx expo-doctor",
     "build:web": "expo export --platform web --output-dir dist",
-    "build:web:pages": "npm run build:web && node scripts/prepare-gh-pages.mjs",
+    "build:web:pages": "EXPO_PUBLIC_BASE_URL=${EXPO_PUBLIC_BASE_URL:-/baikal-app} npm run build:web && node scripts/prepare-gh-pages.mjs",
     "preview:web": "npx serve dist",
     "build:ios:preview": "npx eas-cli build --platform ios --profile preview",
     "build:ios:production": "npx eas-cli build --platform ios --profile production",

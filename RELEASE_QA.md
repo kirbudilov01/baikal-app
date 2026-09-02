@@ -29,7 +29,7 @@ Backend URL: `https://baikal.46.17.103.26.sslip.io`
 - Admin login returns `200`.
 - Unauthenticated `GET /api/admin/db` returns `401`.
 - Authenticated `GET /api/admin/db` returns `200`.
-- Current admin DB snapshot: 4 reports, 2 users, 5 promo codes.
+- Current admin DB snapshot after QA cleanup: 4 reports, 1 user, 2 promo codes.
 - `GET /terms`, `GET /privacy`, and `GET /support` return `200`.
 - Admin status transition smoke passed with a temporary report:
   - created temporary report `BR-SMOKE-STATUS`

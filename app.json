@@ -15,6 +15,7 @@
       "bundleIdentifier": "ru.baikal.vrukah",
       "supportsTablet": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Камера нужна, чтобы сфотографировать экологическую проблему для заявки.",
         "NSPhotoLibraryUsageDescription": "Фото нужны, чтобы добавить снимок проблемы к заявке.",
         "NSLocationWhenInUseUsageDescription": "Геопозиция нужна, чтобы указать точку проблемы на карте."
@@ -31,6 +32,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "53312ce9-87bd-4c45-b363-a8d73ced367a"
+      }
+    },
+    "owner": "mikekosarevs-team"
   }
 }
